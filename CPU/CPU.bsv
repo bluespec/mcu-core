@@ -1138,7 +1138,6 @@ module mkCPU (CPU_IFC);
             $fflush(stdout);
          end
 
-`ifndef SYNTHESIS
 `ifndef INCLUDE_GDB_CONTROL
          // Simulation heuristic. If jumping to the same address, exit
          if (alu_outputs.addr == rg_pc) begin
@@ -1146,7 +1145,6 @@ module mkCPU (CPU_IFC);
                , cur_cycle, alu_outputs.addr);
             $finish (0);
          end
-`endif
 `endif
 `ifdef MIN_CSR
          fa_finish_instr (alu_outputs.addr);
@@ -1953,7 +1951,7 @@ module mkCPU (CPU_IFC);
 
       rg_state <= CPU_RESTART_TRAP;
 
-`ifndef SYNTHESIS
+`ifndef TCM_LOADER
       // Simulation heuristic: finish if trap back to this instr
       if (epc == next_pc) begin
          $display ("%06d:[D]:%m.rl_trap: Tight infinite trap loop: pc 0x%0x instr 0x%08x",
