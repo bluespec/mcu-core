@@ -37,6 +37,12 @@ import TCM_Decls     :: *;
 
 interface Core_Map_IFC;
 `ifdef Near_Mem_TCM
+`ifdef TCM_DP_SINGLE_MEM
+   (* always_ready *)   method  Fabric_Addr  m_tcm_addr_base;
+   (* always_ready *)   method  Fabric_Addr  m_tcm_addr_size;
+   (* always_ready *)   method  Fabric_Addr  m_tcm_addr_lim;
+   (* always_ready *)   method  Bool         m_is_tcm_addr (Fabric_Addr addr);
+`else
    (* always_ready *)   method  Fabric_Addr  m_itcm_addr_base;
    (* always_ready *)   method  Fabric_Addr  m_itcm_addr_size;
    (* always_ready *)   method  Fabric_Addr  m_itcm_addr_lim;
@@ -46,6 +52,7 @@ interface Core_Map_IFC;
    (* always_ready *)   method  Fabric_Addr  m_dtcm_addr_size;
    (* always_ready *)   method  Fabric_Addr  m_dtcm_addr_lim;
    (* always_ready *)   method  Bool         m_is_dtcm_addr (Fabric_Addr addr);
+`endif   // ifndef TCM_DP_SINGLE_MEM
 `endif
 
    (* always_ready *)   method  Fabric_Addr m_pc_reset_value;
@@ -72,6 +79,21 @@ module mkCore_Map (Core_Map_IFC);
    // The "main" memory now starts from 0x1000_0000 later, effectively
    // leaving 256 MB for the two TCMs
    //
+`ifdef TCM_DP_SINGLE_MEM
+   // Unified TCMs are of the same size, controlled by a
+   // single tcm_addr_size value.
+   Fabric_Addr tcm_addr_base = 'h_C000_0000;
+   Fabric_Addr tcm_addr_size = fromInteger (bytes_per_TCM);
+   Fabric_Addr tcm_addr_lim  = tcm_addr_base + tcm_addr_size;
+
+   function Bool fn_is_tcm_addr (Fabric_Addr addr);
+      Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) tcm_base_msb = truncate (
+         tcm_addr_base >> tcm_addr_lsb); 
+      Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) addr_msb = truncate (
+         addr >> tcm_addr_lsb); 
+      return (tcm_base_msb == addr_msb);
+   endfunction
+`else
    // Currently the TCMs are of the same size, controlled by a
    // single tcm_addr_size value.
    Fabric_Addr itcm_addr_base = 'h_C000_0000;
@@ -97,20 +119,29 @@ module mkCore_Map (Core_Map_IFC);
          addr >> tcm_addr_lsb); 
       return (tcm_base_msb == addr_msb);
    endfunction
+`endif   // ifndef TCM_DP_SINGLE_MEM
 `else
    Fabric_Addr mem_addr_base = 'h_C000_0000;
    Fabric_Addr mem_addr_size = 'h_1000_0000; // Arbitrarily set at 256 MB
    Fabric_Addr mem_addr_lim  = 'h_D000_0000;
-`endif
+`endif   // ifndef Near_Mem_TCM
 
    // ----------------------------------------------------------------
    // PC, MTVEC and NMIVEC reset values
 `ifdef Near_Mem_TCM
+`ifdef TCM_DP_SINGLE_MEM
+   Fabric_Addr pc_reset_value     = tcm_addr_base;
+   Fabric_Addr mtvec_reset_value  = tcm_addr_base; // On a trap act like reset
+`ifndef MIN_CSR
+   Fabric_Addr nmivec_reset_value = tcm_addr_base; // On a NMI act like reset
+`endif
+`else
    Fabric_Addr pc_reset_value     = itcm_addr_base;
    Fabric_Addr mtvec_reset_value  = itcm_addr_base; // On a trap act like reset
 `ifndef MIN_CSR
    Fabric_Addr nmivec_reset_value = itcm_addr_base; // On a NMI act like reset
 `endif
+`endif   // ifndef TCM_DP_SINGLE_MEM
 `else
    // WARNING: If disabling TCMs, ensure that memory model exists in SoC
    Fabric_Addr pc_reset_value     = mem_addr_base;
@@ -124,6 +155,12 @@ module mkCore_Map (Core_Map_IFC);
    // INTERFACE
 
 `ifdef Near_Mem_TCM
+`ifdef TCM_DP_SINGLE_MEM
+   method  Fabric_Addr  m_tcm_addr_base = tcm_addr_base;
+   method  Fabric_Addr  m_tcm_addr_size = tcm_addr_size;
+   method  Fabric_Addr  m_tcm_addr_lim  = tcm_addr_lim;
+   method  Bool  m_is_tcm_addr (Fabric_Addr addr) = fn_is_tcm_addr (addr);
+`else
    method  Fabric_Addr  m_itcm_addr_base = itcm_addr_base;
    method  Fabric_Addr  m_itcm_addr_size = itcm_addr_size;
    method  Fabric_Addr  m_itcm_addr_lim  = itcm_addr_lim;
@@ -133,6 +170,7 @@ module mkCore_Map (Core_Map_IFC);
    method  Fabric_Addr  m_dtcm_addr_size = dtcm_addr_size;
    method  Fabric_Addr  m_dtcm_addr_lim  = dtcm_addr_lim;
    method  Bool  m_is_dtcm_addr (Fabric_Addr addr) = fn_is_dtcm_addr (addr);
+`endif   // ifndef TCM_DP_SINGLE_MEM
 `endif
 
    method  Fabric_Addr  m_pc_reset_value     = pc_reset_value;

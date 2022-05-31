@@ -79,7 +79,6 @@ interface CPU_IFC;
 `endif
 `endif
 
-
    // ----------------
    // External interrupts
 
@@ -128,10 +127,12 @@ interface CPU_IFC;
    // ----------------------------------------------------------------
    // Misc. control and status
 
+`ifndef SYNTHESIS
    // ----------------
    // Set core's verbosity
    (* always_ready *)
    method Action set_verbosity (Bit #(2)  verbosity);
+`endif
 
 `ifdef Near_Mem_TCM
    // ----------------

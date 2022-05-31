@@ -19,13 +19,11 @@ package Core;
 // Macros Supported:
 //    MIN_CSR
 //    Near_Mem_TCM
-//    TCM_BACK_DOOR (assumes Near_Mem_TCM)
+//    TCM_LOADER (assumes Near_Mem_TCM)
 //    FABRIC_AXI4 OR FABRIC_AHBL OR FABRIC_APB
 //    INCLUDE_GDB_CONTROL
 //    INCLUDE_TANDEM_VERIF
-//    INCLUDE_DMEM_SLAVE
 //    WATCH_TOHOST
-//    RELEASE -- to tie off unused interfaces
 // ================================================================
 // BSV library imports
 
@@ -234,9 +232,11 @@ module mkCore (Core_IFC);
    // ----------------------------------------------------------------
    // Misc. control and status
 
+`ifndef SYNTHESIS
    method Action  set_verbosity (Bit #(2)  verbosity);
       cpu.set_verbosity (verbosity);
    endmethod
+`endif
 
    // ----------------
    // For ISA tests: watch memory writes to <tohost> addr

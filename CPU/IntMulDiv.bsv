@@ -30,7 +30,9 @@ typedef enum { Div_RDY, Div_START, Div_LOOP1, Div_LOOP2, Div_DONE} DivState
    deriving (Eq, Bits, FShow);
 
 module mkIntDiv #(Reg #(Bit #(w)) rg_numer,    // a.k.a. dividend, and final remainder
-		  Reg #(Bit #(w)) rg_denom)    // a.k.a. divisor
+		  Reg #(Bit #(w)) rg_denom,
+                  Bit #(2) verbosity
+                 )    // a.k.a. divisor
                 (IntDiv_IFC #(w));
 
    Reg #(DivState)  rg_state     <- mkReg (Div_RDY);

@@ -104,11 +104,11 @@ interface BSCore_IFC;
 
    // ----------------
    // Software and timer interrupts (from CLINT)
-   (* always_ready, always_enabled, prefix=""  *)
+   (* always_ready, always_enabled, prefix="" *)
    method Action  software_interrupt_req (
       (* port="sw_interrupt" *) Bool set_not_clear);
 
-   (* always_ready, always_enabled, prefix=""  *)
+   (* always_ready, always_enabled, prefix="" *)
    method Action  timer_interrupt_req (
       (* port="timer_interrupt" *) Bool set_not_clear);
 
@@ -133,6 +133,12 @@ interface BSCore_IFC;
    method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
    method Fabric_Data mv_tohost_value;
 `endif
+`endif
+
+`ifndef SYNTHESIS
+   // ----------------
+   // Debugging: set core's verbosity
+   method Action  set_verbosity (Bit #(2)  verbosity);
 `endif
 
 endinterface
@@ -199,7 +205,7 @@ module mkBSCore (BSCore_IFC);
       core.cpu_reset_server.request.put (running);
       // TODO: maybe set rg_ndm_count if debug_module present?
       rg_once <= True;
-      $display ("%0d: %m.rl_once: PoR to Core: (running ",
+      $display ("%06d:[D]:%m.rl_once: PoR to Core: (running ",
          cur_cycle, fshow (running), ")");
    endrule
 
@@ -289,6 +295,15 @@ module mkBSCore (BSCore_IFC);
 
    method Fabric_Data mv_tohost_value = core.mv_tohost_value;
 `endif
+`endif
+
+   // ----------------------------------------------------------------
+   // Misc. control and status
+
+`ifndef SYNTHESIS
+   method Action  set_verbosity (Bit #(2)  verbosity);
+      core.set_verbosity (verbosity);
+   endmethod
 `endif
 
 endmodule

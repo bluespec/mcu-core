@@ -34,8 +34,6 @@ import IntMulDiv :: *;
 // MBox interface
 
 interface RISCV_MBox_IFC;
-   method Action set_verbosity (Bit #(4) verbosity);
-
    method Action                   req_reset;
    method ActionValue #(Bit #(0))  rsp_reset;
 
@@ -55,8 +53,8 @@ deriving (Bits, Eq, FShow);
 
 (* synthesize *)
 module mkRISCV_MBox (RISCV_MBox_IFC);
-
-   Reg #(Bit #(4)) cfg_verbosity <- mkConfigReg (0);
+   // 0: quiet, 1: rule firings, 2: details
+   Bit #(2) verbosity = 0;
 
    Reg #(State)     rg_state <- mkRegU;
 
@@ -66,7 +64,7 @@ module mkRISCV_MBox (RISCV_MBox_IFC);
    Reg #(WordXL)    rg_v2              <- mkRegU;
    Reg #(WordXL)    rg_result          <- mkRegU;
 
-   IntDiv_IFC #(XLEN) intDiv <- mkIntDiv (rg_v1, rg_v2);
+   IntDiv_IFC #(XLEN) intDiv <- mkIntDiv (rg_v1, rg_v2, verbosity);
 
 `ifdef MULT_SERIAL
 `ifdef RV64
@@ -89,7 +87,7 @@ module mkRISCV_MBox (RISCV_MBox_IFC);
 `ifdef MULT_SYNTH
 
    rule rl_mul (rg_state == STATE_MUL1);
-      if (cfg_verbosity > 1)
+      if (verbosity > 0)
 	 $display ("    RISCV_MBox.rl_mul");
 
       WordXL result = '1;
@@ -159,7 +157,7 @@ module mkRISCV_MBox (RISCV_MBox_IFC);
    // DIV family and REM family
    // Uses the iterative divider provided in the imported 'IntMulDiv' package.
 
-   rule rg_div_rem ((rg_state == STATE_DIV_REM) && intDiv.result_valid);
+   rule rl_div_rem ((rg_state == STATE_DIV_REM) && intDiv.result_valid);
       match { .q, .r } = intDiv.result_value;
       WordXL result = ((rg_f3 [1] == 1'b0) ? q : r );
 
@@ -170,14 +168,14 @@ module mkRISCV_MBox (RISCV_MBox_IFC);
 
       dw_valid  <= True;
       dw_result <= result;
+      if (verbosity > 0) begin
+         $display ("%06d:[D]:%m.rl_div_rem: (result: %08h)"
+            , cur_cycle, result);
+      end
    endrule
 
    // ================================================================
    // INTERFACE
-
-   method Action set_verbosity (Bit #(4) verbosity);
-      cfg_verbosity <= verbosity;
-   endmethod
 
    method Action req_reset;
       noAction;
@@ -254,6 +252,10 @@ module mkRISCV_MBox (RISCV_MBox_IFC);
       else begin
 	 rg_state <= STATE_DIV_REM;
 	 intDiv.start (is_signed, is_signed);
+         if (verbosity > 0) begin
+            $display ("%06d:[D]:%m.req: Integer DIV: %08h, %08h"
+               , cur_cycle, rg_v1, rg_v2);
+         end
       end
    endmethod
 

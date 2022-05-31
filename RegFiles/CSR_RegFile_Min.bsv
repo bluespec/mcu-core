@@ -369,6 +369,7 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
                         (csr_addr == csr_addr_mstatus)
                      || (csr_addr == csr_addr_mie)
                      || (csr_addr == csr_addr_mtvec)
+                     || (csr_addr == csr_addr_mhartid)   // Added to support FreeRTOS
 
                      || (csr_addr == csr_addr_mepc)
                      || (csr_addr == csr_addr_mscratch)
@@ -402,6 +403,7 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
 
       case (csr_addr)
          // Machine mode csrs
+         csr_addr_mhartid:    m_csr_value = tagged Valid mhartid; // Added to support FreeRTOS
          csr_addr_misa:       m_csr_value = tagged Valid (misa_to_word (misa));
          csr_addr_mstatus:    m_csr_value = tagged Valid (csr_mstatus.mv_read);
          csr_addr_mie:        m_csr_value = tagged Valid (csr_mie.mv_read);
@@ -524,6 +526,7 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
                                  end
 `endif
 
+	    csr_addr_mhartid:    new_csr_value = mhartid;      // hardwired   -- added to support FreeRTOS
 `ifdef INCLUDE_GDB_CONTROL
             csr_addr_dcsr:       begin
                                     Bit #(32) new_dcsr

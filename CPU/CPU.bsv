@@ -8,9 +8,10 @@ package CPU;
 // - Optional Debug Module connection
 // - Optional Tandem Verification connection.
 
-// This implementation is built for simplicity and small size, not for
-// speed, hence implemented as an FSM, without any pipelining.
-// cf. "Ceci n'est pas une pipe" -- René Magritte ("This is not a pipe")
+// This implementation is built for simplicity and small size, not
+// for architectural performance, hence implemented as an FSM,
+// without any pipelining.  cf. "Ceci n'est pas une pipe" -- René
+// Magritte ("This is not a pipe")
 
 // ================================================================
 // Exports
@@ -306,13 +307,13 @@ module mkCPU (CPU_IFC);
    // ----------------
    // For local debugging
 
+`ifdef SYNTHESIS
+   // Current verbosity - meaningless on FPGA
+   Bit #(2)  cur_verbosity = 0;
+`else
    // Verbosity: 0=quiet; 1=instruction trace; 2=more detail
    Reg #(Bit #(2))  cfg_verbosity <- mkConfigReg (0);
 
-`ifdef RELEASE
-   // Current verbosity, taking into account log delay
-   Bit #(2)  cur_verbosity = 1;
-`else
    // Current verbosity, taking into account log delay
    Bit #(2)  cur_verbosity = cfg_verbosity;
 `endif
@@ -378,20 +379,43 @@ module mkCPU (CPU_IFC);
    endfunction: mip_cmd_needed
 
    // ================================================================
-   // Debugging: print instruction trace info
-`ifdef MIN_CSR
-   function Action fa_emit_instr_trace (Bit #(64) instret1, WordXL pc1, Instr instr1);
-      action
-         if (cur_verbosity >= 1)
-            $display ("instret:%06d  PC:0x%08h  (instr:0x%08h)",
-                      instret1, pc1, instr1);
-`else
-   function Action fa_emit_instr_trace (Bit #(64) instret1, WordXL pc1, Instr instr1, Priv_Mode priv1);
-      action
-         if (cur_verbosity >= 1)
-            $display ("instret:%06d  PC:0x%08h  (instr:0x%08h)  priv:%0d",
-                      instret1, pc1, instr1, priv1);
+   // Debugging: print instruction trace info.
+   // Memory store update only for RV32, not generalized for RV64
+   function Action fa_emit_instr_trace (Bit #(64) instret1
+      , WordXL pc1
+      , Instr instr1
+      , Maybe #(Tuple2 #(RegName, WordXL)) gpr_update
+      , Maybe #(Tuple2 #(Addr, Bit #(32))) mem_update
+`ifndef MIN_CSR
+      , Priv_Mode priv1
 `endif
+      );
+      action
+      $write ("(instret:%06d) ", instret1);
+      $write ("(PC:0x%08h) ", pc1);
+      $write ("(instr:0x%08h) ", instr1);
+      if (isValid (gpr_update)) begin
+         match {.rd, .rdval} = gpr_update.Valid;
+         $write ("(GPR[%02d]<-0x%08h) ", rd, rdval);
+      end
+      else begin
+         $write ("                      ");
+      end
+
+      // Incomplete implementation. Does not take into account
+      // f3 field to show actual bytes updated.
+      if (isValid (mem_update)) begin
+         match {.addr, .data} = mem_update.Valid;
+         $write ("(MEM[0x%08h]<-0x%08h) ", addr, data);
+      end
+
+      else begin
+         $write ("                              ");
+      end
+`ifndef MIN_CSR
+      $write ("(priv:%06d)", priv1);
+`endif
+      $write ("\n");
       endaction
    endfunction
 
@@ -876,33 +900,22 @@ module mkCPU (CPU_IFC);
    // ================================================================
    // Main run-loop
 
-`ifdef MIN_CSR
-   function Action fa_finish_instr (Addr  next_pc);
+   function Action fa_finish_instr (
+        Addr                                 next_pc
+      , Maybe #(Tuple2 #(RegName, WordXL))   gpr_update
+      , Maybe #(Tuple2 #(Addr, Bit #(32)))   mem_update
+`ifndef MIN_CSR
+      , Priv_Mode                            new_priv
+`endif
+   );
       action
          fa_start_ifetch (next_pc);
-`else
-   function Action fa_finish_instr (Addr  next_pc,  Priv_Mode  new_priv);
-      action
-	 fa_start_ifetch (next_pc, new_priv);
-`endif
 
          // Accounting
          csr_regfile.csr_minstret_incr;
 
          // Debug
          if (cur_verbosity >= 1)
-`ifdef MIN_CSR
-            fa_emit_instr_trace (
-                 minstret
-               , rg_pc
-`ifdef ISA_C
-               , (rg_exec1_inputs.is_i32_not_i16 ? rg_exec1_inputs.instr
-                                                 : extend (rg_exec1_inputs.instr_C)));
-`else
-               , rg_exec1_inputs.instr);
-`endif
-
-`else
             fa_emit_instr_trace (
                  minstret
                , rg_pc
@@ -912,8 +925,12 @@ module mkCPU (CPU_IFC);
 `else
                , rg_exec1_inputs.instr
 `endif
-               , rg_cur_priv);
+               , gpr_update
+               , mem_update
+`ifndef MIN_CSR
+               , rg_cur_priv
 `endif
+            );
 
       endaction
    endfunction
@@ -1146,11 +1163,14 @@ module mkCPU (CPU_IFC);
             $finish (0);
          end
 `endif
-`ifdef MIN_CSR
-         fa_finish_instr (alu_outputs.addr);
-`else
-         fa_finish_instr (alu_outputs.addr, rg_cur_priv);
+         fa_finish_instr (
+              alu_outputs.addr
+            , tagged Invalid
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
       end
 
       // ----------------------------------------------------------------
@@ -1170,11 +1190,14 @@ module mkCPU (CPU_IFC);
                $fflush(stdout);
             end
 
-`ifdef MIN_CSR
-            fa_finish_instr (next_pc);
-`else
-            fa_finish_instr (next_pc, rg_cur_priv);
+            fa_finish_instr (
+                 next_pc
+               , tagged Valid (tuple2 (alu_outputs.rd, alu_outputs.val1))
+               , tagged Invalid
+`ifndef MIN_CSR
+               , rg_cur_priv
 `endif
+            );
          end
 
 `ifdef ISA_A
@@ -1299,58 +1322,62 @@ module mkCPU (CPU_IFC);
 `ifdef ISA_PRIV_U
                || (alu_outputs.control == CONTROL_URET)
 `endif
-               )
-         begin
+      ) begin
 `ifdef ISA_PRIV_U
 `ifdef ISA_PRIV_S
-            // MUS mode
-            Vector #(3, Bool) sels = newVector;
-            Vector #(3, Priv_Mode) privs = newVector;
-            sels[0] = (alu_outputs.control == CONTROL_MRET); privs[0] = m_Priv_Mode;
-            sels[1] = (alu_outputs.control == CONTROL_URET); privs[1] = u_Priv_Mode;
-            sels[2] = (alu_outputs.control == CONTROL_SRET); privs[2] = s_Priv_Mode;
-            Priv_Mode from_priv = fv_and_or_mux (sels, privs);
+         // MUS mode
+         Vector #(3, Bool) sels = newVector;
+         Vector #(3, Priv_Mode) privs = newVector;
+         sels[0] = (alu_outputs.control == CONTROL_MRET); privs[0] = m_Priv_Mode;
+         sels[1] = (alu_outputs.control == CONTROL_URET); privs[1] = u_Priv_Mode;
+         sels[2] = (alu_outputs.control == CONTROL_SRET); privs[2] = s_Priv_Mode;
+         Priv_Mode from_priv = fv_and_or_mux (sels, privs);
 `else
-            // MU mode
-            Priv_Mode from_priv = (alu_outputs.control == CONTROL_MRET) ? m_Priv_Mode : u_Priv_Mode;
+         // MU mode
+         Priv_Mode from_priv = (alu_outputs.control == CONTROL_MRET) ? m_Priv_Mode 
+                                                                     : u_Priv_Mode;
 `endif
 `else
 `ifdef ISA_PRIV_S
-            // MS mode
-            Priv_Mode from_priv = (alu_outputs.control == CONTROL_MRET) ? m_Priv_Mode : s_Priv_Mode;
+         // MS mode
+         Priv_Mode from_priv = (alu_outputs.control == CONTROL_MRET) ? m_Priv_Mode
+                                                                     : s_Priv_Mode;
 `else
-            // M mode
-            Priv_Mode from_priv = m_Priv_Mode;
+         // M mode
+         Priv_Mode from_priv = m_Priv_Mode;
 `endif
 `endif
 `ifdef MIN_CSR
-            let new_pc <- csr_regfile.csr_ret_actions;
+         let new_pc <- csr_regfile.csr_ret_actions;
 `else
-            match { .new_pc, .new_priv, .new_mstatus } <- csr_regfile.csr_ret_actions (from_priv);
-	    rg_cur_priv <= new_priv;
+         match { .new_pc, .new_priv, .new_mstatus } <- csr_regfile.csr_ret_actions (
+            from_priv);
+         rg_cur_priv <= new_priv;
 `endif
 
-            // Resume execution
-            rg_state <= CPU_RUNNING;
+         // Resume execution
+         rg_state <= CPU_RUNNING;
 
-            // Debug
-            if (cur_verbosity > 1) begin
+         // Debug
+         if (cur_verbosity > 1) begin
 `ifdef MIN_CSR
-               $display ("    xRET: next_pc 0x%0h ", new_pc);
-               $fflush(stdout);
-            end
-
-            // Redirect PC
-            fa_finish_instr (new_pc);
+            $display ("    xRET: next_pc 0x%0h ", new_pc);
 `else
-               $display ("    xRET: mstatus 0x%08h  next_pc 0x%0h  new_mstatus = 0x%0h  new_priv %0d",
-			 mstatus, new_pc, new_mstatus, new_priv);
-               $fflush(stdout);
-            end
-
-	    // Redirect PC
-	    fa_finish_instr (new_pc, new_priv);
+            $display ("    xRET: mstatus 0x%08h  next_pc 0x%0h  new_mstatus = 0x%0h  new_priv %0d"
+               , mstatus, new_pc, new_mstatus, new_priv);
 `endif
+            $fflush(stdout);
+         end
+
+         // Redirect PC
+         fa_finish_instr (
+              new_pc
+            , tagged Invalid
+            , tagged Invalid
+`ifndef MIN_CSR
+            , new_priv
+`endif
+         );
       end
 
       // ----------------------------------------------------------------
@@ -1359,11 +1386,14 @@ module mkCPU (CPU_IFC);
       else if (   (alu_outputs.control == CONTROL_FENCE)
                || (alu_outputs.control == CONTROL_FENCE_I)) begin
          // FENCE and FENCE.I ops treated as NOP by this CPU
-`ifdef MIN_CSR
-      fa_finish_instr (next_pc);
-`else
-      fa_finish_instr (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Invalid
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
 
       // Resume pipe
       rg_state <= CPU_RUNNING;
@@ -1519,8 +1549,8 @@ module mkCPU (CPU_IFC);
          end
 `endif
 
+         WordXL result = extend (word32);
          if (rd_in_GPR) begin
-            WordXL result = extend (word32);
             gpr_regfile.write_rd (alu_outputs.rd, result);
             if (cur_verbosity > 1) begin
                $display ("%0d:[D]:%m.rl_LD_completion: Rd [%0d] <= data 0x%08h"
@@ -1529,11 +1559,15 @@ module mkCPU (CPU_IFC);
             end
          end
 
-`ifdef MIN_CSR
-         fa_finish_instr (next_pc);
-`else
-         fa_finish_instr (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Valid (tuple2 (alu_outputs.rd, result))
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
+
          // Resume execution
          rg_state <= CPU_RUNNING;
       end
@@ -1562,15 +1596,18 @@ module mkCPU (CPU_IFC);
       let alu_outputs = rg_alu_outputs;
       let pc = rg_pc;
 
-      if (isValid (exc))
+      if (isValid (exc)) 
          fa_take_trap ("ST: Trap", pc, exc.Valid, alu_outputs.addr);
-`ifdef MIN_CSR
+
       else begin
-         fa_finish_instr (next_pc);
-`else
-      else begin
-         fa_finish_instr (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Invalid
+            , tagged Valid (tuple2 (alu_outputs.addr, alu_outputs.val2))
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
 
          // Resume execution
          rg_state <= CPU_RUNNING;
@@ -1618,11 +1655,14 @@ module mkCPU (CPU_IFC);
          WordXL result = extend (word32);
          gpr_regfile.write_rd (alu_outputs.rd, result);
 
-`ifdef MIN_CSR
-         fa_finish_instr (next_pc);
-`else
-	 fa_finish_instr (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Valid (tuple2 (alu_outputs.rd, result))
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
 
          // Resume execution
          rg_state <= CPU_RUNNING;
@@ -1659,11 +1699,14 @@ module mkCPU (CPU_IFC);
       let result = mbox.word;
       gpr_regfile.write_rd (alu_outputs.rd, result);
 
-`ifdef MIN_CSR
-      fa_finish_instr (next_pc);
-`else
-      fa_finish_instr (next_pc, rg_cur_priv);
+      fa_finish_instr (
+           next_pc
+         , tagged Valid (tuple2 (alu_outputs.rd, result))
+         , tagged Invalid
+`ifndef MIN_CSR
+         , rg_cur_priv
 `endif
+      );
 
       // Resume execution
       rg_state <= CPU_RUNNING;
@@ -1712,11 +1755,15 @@ module mkCPU (CPU_IFC);
       if (alu_outputs.rd_in_fpr)
          csr_regfile.ma_update_mstatus_fs (fs_xs_dirty);
 
-`ifdef MIN_CSR
-      fa_finish_instr (next_pc);
-`else
-      fa_finish_instr (next_pc, rg_cur_priv);
+      // XXX Does not actually record register updates
+      fa_finish_instr (
+           next_pc
+         , tagged Invalid
+         , tagged Invalid
+`ifndef MIN_CSR
+         , rg_cur_priv
 `endif
+      );
 
       // Resume execution
       rg_state <= CPU_RUNNING;
@@ -1752,17 +1799,21 @@ module mkCPU (CPU_IFC);
       let result = sbox.word;
       gpr_regfile.write_rd (alu_outputs.rd, result);
 
-`ifdef MIN_CSR
-      fa_finish_instr (next_pc);
-`else
-      fa_finish_instr (next_pc, rg_cur_priv);
+      fa_finish_instr (
+           next_pc
+         , tagged Valid (tuple2 (alu_outputs.rd, result))
+         , tagged Invalid
+`ifndef MIN_CSR
+         , rg_cur_priv
 `endif
+      );
 
       // Resume execution
       rg_state <= CPU_RUNNING;
 
       if (cur_verbosity > 1) begin
-         $display ("%0d:[D]:%m.rl_SH_completion: Rd [%0d] <= data 0x%08h", cur_cycle, alu_outputs.rd, result);
+         $display ("%0d:[D]:%m.rl_SH_completion: Rd [%0d] <= data 0x%08h"
+            , cur_cycle, alu_outputs.rd, result);
          $fflush(stdout);
       end
    endrule
@@ -1815,11 +1866,14 @@ module mkCPU (CPU_IFC);
          let new_csr_val <- csr_regfile.mav_csr_write (csr_addr, rs1_val);
 
          // Finish the instruction
-`ifdef MIN_CSR
-         fa_finish_instr (next_pc);
-`else
-         fa_finish_instr (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Valid (tuple2 (rd, new_rd_val))
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
 
          // Resume execution
          rg_state <= CPU_RUNNING;
@@ -1886,11 +1940,14 @@ module mkCPU (CPU_IFC);
          end
 
          // Finish the instruction
-`ifdef MIN_CSR
-         fa_finish_instr (next_pc);
-`else
-         fa_finish_instr (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Valid (tuple2 (rd, new_rd_val))
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
 
          // Resume execution
          rg_state <= CPU_RUNNING;
@@ -2059,11 +2116,14 @@ module mkCPU (CPU_IFC);
 
       // Resume pipe
       rg_state <= CPU_RUNNING;
-`ifdef MIN_CSR
-      fa_finish_instr (next_pc);
-`else
-      fa_finish_instr (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Invalid
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
    endrule
 `endif
 
@@ -2096,11 +2156,14 @@ module mkCPU (CPU_IFC);
 
       // Resume pipe (it will handle the interrupt, if one is pending)
       rg_state <= CPU_RUNNING;
-`ifdef MIN_CSR
-      fa_finish_instr  (next_pc);
-`else
-      fa_finish_instr  (next_pc, rg_cur_priv);
+         fa_finish_instr (
+              next_pc
+            , tagged Invalid
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
 `endif
+         );
    endrule: rl_WFI_resume
 
    // ----------------
@@ -2498,11 +2561,13 @@ module mkCPU (CPU_IFC);
    // ----------------------------------------------------------------
    // Misc. control and status
 
+`ifndef SYNTHESIS
    // ----------------
    // For tracing
    method Action  set_verbosity (Bit #(2)  verbosity);
       cfg_verbosity <= verbosity;
    endmethod
+`endif
 
    // ----------------
    // For ISA tests: watch memory writes to <tohost> addr

@@ -101,6 +101,12 @@ interface MCUTop_IFC;
    interface JTAG_IFC jtag;
 `endif
 
+`ifndef SYNTHESIS
+   // ----------------
+   // Debugging: set core's verbosity
+   method Action  set_verbosity (Bit #(2)  verbosity);
+`endif
+
 endinterface
 
 // ================================================================
@@ -174,6 +180,15 @@ module mkMCUTop (MCUTop_IFC);
 `ifdef INCLUDE_GDB_CONTROL
    interface Reset ndm_resetn = bsdebug.ndm_resetn;
    interface JTAG_IFC jtag = bsdebug.jtag;
+`endif
+
+   // ----------------------------------------------------------------
+   // Misc. control and status
+
+`ifndef SYNTHESIS
+   method Action  set_verbosity (Bit #(2)  verbosity);
+      bscore.set_verbosity (verbosity);
+   endmethod
 `endif
 
 endmodule

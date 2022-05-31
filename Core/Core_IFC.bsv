@@ -124,10 +124,11 @@ interface Core_IFC;
    // ----------------------------------------------------------------
    // Misc. control and status
 
+`ifndef SYNTHESIS
    // ----------------
    // Debugging: set core's verbosity
-
    method Action  set_verbosity (Bit #(2)  verbosity);
+`endif
 
    // ----------------
    // For ISA tests: watch memory writes to <tohost> addr
