@@ -160,11 +160,6 @@ module mkBSCore (BSCore_IFC);
    // ================================================================
    // Tie-offs 
 
-   // Set core's verbosity
-   rule rl_never (False);
-      core.set_verbosity (?);
-   endrule
-
 `ifndef MIN_CSR
    // Tie-offs
    rule rl_always (True);

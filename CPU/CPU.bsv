@@ -2008,13 +2008,18 @@ module mkCPU (CPU_IFC);
 
       rg_state <= CPU_RESTART_TRAP;
 
-`ifndef TCM_LOADER
+`ifndef SYNTHESIS
       // Simulation heuristic: finish if trap back to this instr
       if (epc == next_pc) begin
          $display ("%06d:[D]:%m.rl_trap: Tight infinite trap loop: pc 0x%0x instr 0x%08x",
                    cur_cycle, next_pc, instr);
+`ifndef TCM_LOADER
+         // We do not finish the simulation when simulating with a TCM loader
+         // because a base loader might place an infinite trap loop waiting for
+         // GDB to connect.
          fa_report_CPI;
          $finish (0);
+`endif
       end
 `endif
 
