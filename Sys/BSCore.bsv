@@ -3,52 +3,45 @@
 package BSCore;
 
 // ================================================================
-// This package defines the interface and implementation of the 
-// Core for the xMCU class of SoCs (aSoC and adSoC)
+// This package servers as the top-level of the MCU Core
 //
-// This P1 core contains:
-//    - The CPU core
-//        - Near_Mem (TCM)
-//        - RV32I[M][C] core
-//        - 1 x AXI4 Master interfaces (from DMem)
-//        - Optional debug server interface
-//        - Optional DMA server interface
-
 // ================================================================
 // BSV library imports
 
-import Vector        :: *;
-import FIFO          :: *;
-import GetPut        :: *;
-import ClientServer  :: *;
-import Connectable   :: *;
-import Clocks        :: *;
+import Vector           :: *;
+import FIFO             :: *;
+import GetPut           :: *;
+import ClientServer     :: *;
+import Connectable      :: *;
+import Clocks           :: *;
 
 // ----------------
 // BSV additional libs
 
-import GetPut_Aux :: *;
-import Semi_FIFOF :: *;
+import GetPut_Aux       :: *;
+import Semi_FIFOF       :: *;
 
 // ================================================================
 // Project imports
 
 // The basic core
-import Core_IFC :: *;
-import Core     :: *;
-import Near_Mem_IFC  :: *; // for Near_Mem_Fabric_IFC
+import ISA_Decls        :: *;
+import CPU_Globals      :: *;
+import Core_IFC         :: *;
+import Core             :: *;
+import Near_Mem_IFC     :: *; // for Near_Mem_Fabric_IFC
 
 // Main Fabric
-import Fabric_Defs  :: *;
+import Fabric_Defs      :: *;
 
 `ifdef FABRIC_AXI4
-import AXI4_Types   :: *;
-import AXI4_Fabric  :: *;
+import AXI4_Types       :: *;
+import AXI4_Fabric      :: *;
 `endif
 
 `ifdef FABRIC_AHBL
-import AHBL_Types   :: *;
-import AHBL_Defs    :: *;
+import AHBL_Types       :: *;
+import AHBL_Defs        :: *;
 `endif
 
 `ifdef FABRIC_APB
@@ -57,17 +50,22 @@ import APB_Defs         :: *;
 `endif
 
 `ifdef INCLUDE_GDB_CONTROL
-import Debug_Interfaces   :: *;
+import Debug_Interfaces :: *;
 `endif
 
-import DM_CPU_Req_Rsp    :: *;   // for SB_Sys_Req
+import DM_CPU_Req_Rsp   :: *;   // for SB_Sys_Req
 
 `ifdef TCM_LOADER
-import AXI4_Deburster      :: *;
+import AXI4_Deburster   :: *;
 import Loader_AXI4_Adapter :: *;
 `endif
 
-import Cur_Cycle     :: *;
+`ifdef ISA_X
+import XTypes           :: *;
+import XCatalyst        :: *;
+`endif
+
+import Cur_Cycle        :: *;
 
 // ================================================================
 // Constant: cycles to hold SoC in reset for ndm reset:
@@ -126,6 +124,7 @@ interface BSCore_IFC;
 `endif
 `endif
 
+
    // ----------------
    // For ISA tests: watch memory writes to <tohost> addr
 `ifdef Near_Mem_TCM
@@ -177,7 +176,8 @@ module mkBSCore (BSCore_IFC);
    Reg #(Bool)          rg_reset_done <- mkReg (False);
    Reg #(Bool)          rg_last_cpuh  <- mkReg (False);
 
-   // To support an external loader to reset and halt the CPU (unused)
+   // To support an external loader to reset and halt the CPU 
+   // Only used when the TCM_LOADER is enabled
    Reg #(Maybe #(Bool)) rg_ldr_reset  <- mkReg (tagged Invalid);
 
 `ifdef INCLUDE_GDB_CONTROL
@@ -189,6 +189,13 @@ module mkBSCore (BSCore_IFC);
    endrule
 `endif
 
+   // The Catalyst accelerator core
+`ifdef ISA_X
+   // shares the same reset as the core (PoR or NDMReset)
+   XCatalyst_IFC catalyst <- mkXCatalyst (reset_by coreRSTN);
+`endif
+
+
    let coreInReset <- isResetAsserted(reset_by coreRSTN);
 
    // Reset the core -- currently fires on default reset
@@ -198,6 +205,9 @@ module mkBSCore (BSCore_IFC);
 	 running = False;
       rg_ldr_reset <= Invalid;
       core.cpu_reset_server.request.put (running);
+`ifdef ISA_X
+      catalyst.server_reset.request.put (?);
+`endif
       // TODO: maybe set rg_ndm_count if debug_module present?
       rg_once <= True;
       $display ("%06d:[D]:%m.rl_once: PoR to Core: (running ",
@@ -209,6 +219,9 @@ module mkBSCore (BSCore_IFC);
 `endif
    rule rl_reset_response;
       let running <- core.cpu_reset_server.response.get;
+`ifdef ISA_X
+      let xrsp <- catalyst.server_reset.response.get;
+`endif
 
 `ifdef INCLUDE_GDB_CONTROL
       // wait for end of ndm_interval:
@@ -224,6 +237,32 @@ module mkBSCore (BSCore_IFC);
    AXI4_Deburster_IFC #(
       Wd_Id, Wd_Addr, Wd_Data, Wd_User) deburstr <- mkAXI4_Deburster;
    mkConnection (deburstr.to_slave, loader_adapter.axi);
+`endif
+   
+`ifdef ISA_X
+   // --------
+   // memory (Catalyst initiates, CPU serves)
+   rule rl_xmem_req;
+      let req <- catalyst.x_mem.request.get ();
+      core.accel_ifc.x_mem.request.put (req);
+   endrule
+
+   rule rl_xmem_rsp;
+      let rsp <- core.accel_ifc.x_mem.response.get ();
+      catalyst.x_mem.response.put (rsp);
+   endrule
+
+   // --------
+   // command (CPU initiates, Catalyst serves)
+   rule rl_xcmd_req;
+      let req <- core.accel_ifc.x_compute.request.get ();
+      catalyst.x_compute.request.put (req);
+   endrule
+
+   rule rl_xcmd_rsp;
+      let rsp <- catalyst.x_compute.response.get ();
+      core.accel_ifc.x_compute.response.put (rsp);
+   endrule
 `endif
 
    // ================================================================

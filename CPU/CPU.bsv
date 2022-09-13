@@ -108,65 +108,16 @@ import DM_Common        :: *;
 import Debug_Interfaces :: *;
 `endif
 
+`ifdef ISA_X
+import XTypes           :: *;
+`endif
+
 import DM_CPU_Req_Rsp    :: *;   // for SB_Sys_Req
 
 import Core_Map :: *;    // Only for pc_reset_value
 
 // ================================================================
-// Major States of CPU
-
-// CPU_RUNNING    : Ifetch, decode, RF read
-// CPU_EXEC1      : Stage1 of execution: Addr calc (LD, ST, Branches)
-//                : ALU compute for OP and OP-IMM. Calc fall-through PC.
-// CPU_EXEC2      : Retirement for OP, OP-IMM, Branches (fetch next instr)
-//                : Dispatch for all multi-cycle ops. 
-// CPU*COMPLETION : Retirement for all multi-cycle ops (fetch next instr)
-
-// We are in RL_RUNNING state, rule 'rl_run', for all 1-cycle
-// instructions (ALU, BRANCH, ...).
-// Memory access, floating point, mult/div, fences, WFI are all
-// multi-cycle rules, involving 'completion' states and rules to
-// handle completion.
-
-typedef enum {
-     CPU_RESET1
-   , CPU_RESET2
-`ifdef INCLUDE_GDB_CONTROL
-   , CPU_GDB_PAUSING      // On GDB breakpoint, while waiting for fence completion
-`endif
-   , CPU_DEBUG_MODE       // Stopped (normally for debugger) but also for TCM Loader
-   , CPU_RUNNING          // Normal operation: Instruction fetch, decode, RF read
-   , CPU_EXEC1            // Normal operation: Execution stage1
-   , CPU_EXEC2            // Normal operation: Execution stage2 (retirement for RV32I)
-   , CPU_LD_COMPLETION    // Normal operation: Execution stage3: LD retire
-   , CPU_ST_COMPLETION    // Normal operation: Execution stage3: ST retire
-   , CPU_CSRR_W_COMPLETION// Normal operation: Execution stage3: CSRR_W retire
-   , CPU_CSRR_S_C_COMPLETION// Normal operation: Execution stage3: CSRR_S_C retire
-`ifdef ISA_A
-   , CPU_AMO_COMPLETION   // Normal operation: Execution stage3: AMO completion in NM
-   , CPU_AMO_COMPLETION2  // Normal operation: Execution stage4: AMO retire?
-`endif
-`ifdef ISA_M
-   , CPU_M_COMPLETION     // Normal operation: Execution stage3: M retire
-`endif
-`ifdef ISA_F
-   , CPU_FD_COMPLETION    // Normal operation: Execution stage3: FD retire
-`endif
-`ifdef SHIFT_SERIAL
-   , CPU_SH_COMPLETION    // Normal operation: Execution stage3: Shift retire
-`endif
-   , CPU_TRAP
-   , CPU_RESTART_TRAP     // Restart (fetch) after a trap (breaks timing path)
-   , CPU_BREAK            // Prepare to BREAK
-   , CPU_INTERRUPT_PENDING// Take interrupt
-   , CPU_RESTART_EXT_INT  // Restart (fetch) after an ext interrupt
-`ifdef ISA_PRIV_S
-   , CPU_SFENCE_VMA_COMPLETION// Normal operation: Execution stage2: SFENCE.VM
-`endif
-   , CPU_WFI_PAUSED        // On WFI pause
-} CPU_State deriving (Eq, Bits, FShow);
-
-// ----------------
+// Magritte RISC-V CPU module implementation
 
 function Bool fn_is_running (CPU_State  cpu_state);
    return (   (cpu_state != CPU_RESET1)
@@ -178,8 +129,7 @@ function Bool fn_is_running (CPU_State  cpu_state);
            );
 endfunction
 
-// ================================================================
-// Magritte RISC-V CPU module implementation
+// ----------------
 
 (* synthesize *)
 module mkCPU (CPU_IFC);
@@ -224,6 +174,13 @@ module mkCPU (CPU_IFC);
    // Near mem (caches or TCM, for example, for instruction memory and data memory)
    Near_Mem_IFC  near_mem <- mkNear_Mem;
 
+`ifdef ISA_X
+   // ----------------
+   // Coprocessor request-response channels
+   FIFOF #(X_Req) f_x_req <- mkFIFOF;
+   FIFOF #(X_Rsp) f_x_rsp <- mkFIFOF;
+`endif
+
    // Take imem as-is from near_mem, or use wrapper for 'C' extension
 `ifdef ISA_C
    // XXX Revisit after Near_Mem Change
@@ -253,6 +210,7 @@ module mkCPU (CPU_IFC);
    Reg #(EXEC1_Inputs) rg_exec1_inputs <- mkRegU;
    Reg #(ALU_Outputs) rg_alu_outputs <- mkRegU;
    Reg #(Bool) rg_csr_permitted <- mkReg (True);
+   Reg #(WordXL) rg_csr_rval <- mkRegU;
 
    // Info communicated to rl_trap from previous rules that detect the trap.
    Reg #(Pipe_Trap_Info) rg_trap_info <- mkRegU;
@@ -498,7 +456,7 @@ module mkCPU (CPU_IFC);
       endaction
    endfunction
 
-   // ================================================================
+   // ----------------------------------------------------------------
    // Actions to restart from Debug Mode (e.g., GDB 'continue' after a breakpoint)
    // We re-initialize CPI_instrs and CPI_cycles.
 
@@ -528,18 +486,61 @@ module mkCPU (CPU_IFC);
       endaction
    endfunction
 
-   // ================================================================
+   // ----------------------------------------------------------------
    // Actions to move to a trap state
+
    function Action fa_take_trap (String trap_reason, Addr epc, Exc_Code exc, Addr tval);
       action
          let trap_info = Pipe_Trap_Info {epc: epc, exc_code: exc, tval: tval};
          rg_trap_info <= trap_info;
+`ifdef MCU_LITE
+         rg_state <= CPU_ERROR;
+`else
          rg_state <= CPU_TRAP;
+`endif
 
          // Debug
          if (cur_verbosity > 1) begin
             $display ( "    %s: ", trap_reason, fshow (trap_info));
          end
+      endaction
+   endfunction
+
+   // ----------------------------------------------------------------
+   // Actions to finish an instruction
+
+   function Action fa_finish_instr (
+        Addr                                 next_pc
+      , Maybe #(Tuple2 #(RegName, WordXL))   gpr_update
+      , Maybe #(Tuple2 #(Addr, Bit #(32)))   mem_update
+`ifndef MIN_CSR
+      , Priv_Mode                            new_priv
+`endif
+   );
+      action
+         fa_start_ifetch (next_pc);
+
+         // Accounting
+         csr_regfile.csr_minstret_incr;
+
+         // Debug
+         if (cur_verbosity >= 1)
+            fa_emit_instr_trace (
+                 minstret
+               , rg_pc
+`ifdef ISA_C
+               , (rg_exec1_inputs.is_i32_not_i16 ? rg_exec1_inputs.instr
+                                                 : extend (rg_exec1_inputs.instr_C))
+`else
+               , rg_exec1_inputs.instr
+`endif
+               , gpr_update
+               , mem_update
+`ifndef MIN_CSR
+               , rg_cur_priv
+`endif
+            );
+
       endaction
    endfunction
 
@@ -554,6 +555,7 @@ module mkCPU (CPU_IFC);
       alu_outputs.rd  = instr_rd (inputs.instr);
 
       let funct3      = instr_funct3 (inputs.instr);
+      let funct7      = instr_funct7 (inputs.instr);
 
       if (inputs.ucontrol.opcode.is_op_BRANCH)
          alu_outputs = fv_BRANCH (inputs);
@@ -704,20 +706,22 @@ module mkCPU (CPU_IFC);
          );
       end
 
+`ifndef MCU_LITE
       else if (inputs.ucontrol.opcode.is_op_MISC_MEM) begin
          alu_outputs = fv_MISC_MEM (inputs);
       end
+`endif
 
       else if (inputs.ucontrol.opcode.is_op_SYSTEM)
          alu_outputs = fv_SYSTEM (inputs);
 
-   `ifdef ISA_A
+`ifdef ISA_A
       else if (inputs.ucontrol.opcode.is_op_AMO) begin
          alu_outputs = fv_AMO (inputs);
       end
-   `endif
+`endif
 
-   `ifdef ISA_F
+`ifdef ISA_F
       else if (   (inputs.ucontrol.opcode.is_op_LOAD_FP))
          alu_outputs = fv_LD (inputs);
 
@@ -730,7 +734,35 @@ module mkCPU (CPU_IFC);
                || (inputs.ucontrol.opcode.is_op_FNMSUB)
                || (inputs.ucontrol.opcode.is_op_FNMADD))
          alu_outputs = fv_FP (inputs);
-   `endif
+`endif
+
+`ifdef ISA_X
+      else if (inputs.ucontrol.opcode.is_op_CUSTOM) begin
+         f_x_req.enq ( X_Req {
+              funct3 : funct3
+            , funct7 : funct7
+            , arg1   : inputs.rs1_val
+            , arg2   : inputs.rs2_val});
+
+         // Completion state only if a response is expected
+         next_state = inputs.ucontrol.f3.is_f3_CUSTOM_XD ? CPU_X_COMPLETION
+                                                         : CPU_RUNNING;
+         // End this instruction if no response is expected
+         // custom instructions are always 32-bit
+         if (!inputs.ucontrol.f3.is_f3_CUSTOM_XD) begin
+            let next_pc = rg_pc + 4;
+            fa_finish_instr (
+                 next_pc
+               , tagged Invalid
+               , tagged Invalid
+`ifndef MIN_CSR
+               , rg_cur_priv
+`endif
+            );
+         end
+      end
+`endif
+
 
       else begin
          alu_outputs.control = CONTROL_TRAP;
@@ -899,41 +931,6 @@ module mkCPU (CPU_IFC);
 
    // ================================================================
    // Main run-loop
-
-   function Action fa_finish_instr (
-        Addr                                 next_pc
-      , Maybe #(Tuple2 #(RegName, WordXL))   gpr_update
-      , Maybe #(Tuple2 #(Addr, Bit #(32)))   mem_update
-`ifndef MIN_CSR
-      , Priv_Mode                            new_priv
-`endif
-   );
-      action
-         fa_start_ifetch (next_pc);
-
-         // Accounting
-         csr_regfile.csr_minstret_incr;
-
-         // Debug
-         if (cur_verbosity >= 1)
-            fa_emit_instr_trace (
-                 minstret
-               , rg_pc
-`ifdef ISA_C
-               , (rg_exec1_inputs.is_i32_not_i16 ? rg_exec1_inputs.instr
-                                                 : extend (rg_exec1_inputs.instr_C))
-`else
-               , rg_exec1_inputs.instr
-`endif
-               , gpr_update
-               , mem_update
-`ifndef MIN_CSR
-               , rg_cur_priv
-`endif
-            );
-
-      endaction
-   endfunction
 
    // ================================================================
    // Main loop: result available from IMEM.
@@ -1310,6 +1307,12 @@ module mkCPU (CPU_IFC);
          rg_csr_permitted <= permitted;
          rg_state <= (alu_outputs.control == CONTROL_CSRR_W) ? CPU_CSRR_W_COMPLETION
                                                              : CPU_CSRR_S_C_COMPLETION;
+`ifdef MCU_LITE
+         rg_csr_rval <= fromMaybe (
+              ?
+            , csr_regfile.read_csr (instr_csr (instr))
+         );
+`endif
       end 
 
       // ----------------------------------------------------------------
@@ -1383,6 +1386,7 @@ module mkCPU (CPU_IFC);
       // ----------------------------------------------------------------
       // FENCE/FENCE_I
 
+`ifndef MCU_LITE
       else if (   (alu_outputs.control == CONTROL_FENCE)
                || (alu_outputs.control == CONTROL_FENCE_I)) begin
          // FENCE and FENCE.I ops treated as NOP by this CPU
@@ -1404,6 +1408,7 @@ module mkCPU (CPU_IFC);
             $fflush(stdout);
          end
       end
+`endif
 
       // ----------------------------------------------------------------
       // SFENCE_VMA
@@ -1453,15 +1458,32 @@ module mkCPU (CPU_IFC);
             $fflush(stdout);
          end
 
-         // If trap is BREAK, and dcsr.ebreakm/s/u is set, enter Debug Mode pause
-         // TODO: inline rl_trap_BREAK_to_Debug_Mode here?
+`ifdef MCU_LITE
+         // The default state on traps is CPU_ERROR. Make an
+         // exception when GDB_CONTROL is included
 `ifdef INCLUDE_GDB_CONTROL
+         // If trap is BREAK, and dcsr.ebreakm/s/u is set, enter Debug Mode pause
+         if (   (alu_outputs.exc_code == exc_code_BREAKPOINT)
+             && (csr_regfile.dcsr_break_enters_debug (m_Priv_Mode)))
+         begin
+            rg_state <= CPU_BREAK;
+            if (cur_verbosity > 1) begin
+               $display ("    BREAK");
+               $fflush(stdout);
+            end
+         end else rg_state <= CPU_ERROR;
+`else
+         rg_state <= CPU_ERROR;
+`endif   // GDB_CONTROL
+`else
+`ifdef INCLUDE_GDB_CONTROL
+         // If trap is BREAK, and dcsr.ebreakm/s/u is set, enter Debug Mode pause
          if (   (alu_outputs.exc_code == exc_code_BREAKPOINT)
 `ifdef MIN_CSR
              && (csr_regfile.dcsr_break_enters_debug (m_Priv_Mode))
 `else
              && (csr_regfile.dcsr_break_enters_debug (rg_cur_priv))
-`endif
+`endif   // MIN_CSR
             ) begin
              rg_state <= CPU_BREAK;
              if (cur_verbosity > 1) begin
@@ -1471,7 +1493,8 @@ module mkCPU (CPU_IFC);
          end else rg_state <= CPU_TRAP;
 `else
          rg_state <= CPU_TRAP;
-`endif
+`endif   // GDB_CONTROL
+`endif   // MCU_LITE
       end
 
       // ----------------------------------------------------------------
@@ -1820,6 +1843,61 @@ module mkCPU (CPU_IFC);
 `endif
 
 
+`ifdef ISA_X
+   // ================================================================
+   // Custom instruction completion - only for those custom
+   // instructions which expect a response
+   rule rl_X_completion (
+         (rg_state == CPU_X_COMPLETION)
+`ifdef EVAL
+      && (!cyc_exp)
+`endif
+   );
+      // Read the saved state ...
+      let alu_outputs = rg_alu_outputs;
+      let alu_inputs  = rg_exec1_inputs;
+      let instr       = alu_inputs.instr;
+`ifdef ISA_C
+      let next_pc = rg_pc + (alu_inputs.is_i32_not_i16 ? 4 : 2);
+`else
+      let next_pc = rg_pc + 4;
+`endif
+
+      // Writeback result
+      let result = f_x_rsp.first; f_x_rsp.deq;
+
+      // Invalid result - treat as illegal instruction
+      if (!isValid (result)) begin
+         fa_take_trap ("X: Trap", rg_pc, exc_code_ILLEGAL_INSTRUCTION, instr);
+      end
+
+      // Valid result
+      else begin
+         let x_result = result.Valid;
+         let rd = instr_rd (alu_inputs.instr);
+         gpr_regfile.write_rd (rd, x_result);
+
+         fa_finish_instr (
+              next_pc
+            , tagged Valid (tuple2 (rd, x_result))
+            , tagged Invalid
+`ifndef MIN_CSR
+            , rg_cur_priv
+`endif
+         );
+
+         // Resume execution
+         rg_state <= CPU_RUNNING;
+
+         if (cur_verbosity > 1) begin
+            $display ("%0d:[D]:%m.rl_X_completion: Rd [%0d] <= data 0x%08h"
+               , cur_cycle, alu_outputs.rd, x_result);
+            $fflush(stdout);
+         end
+      end
+   endrule
+`endif
+
    // ================================================================
    // CSRR_W completion
 
@@ -1850,13 +1928,16 @@ module mkCPU (CPU_IFC);
             , pc, exc_code_ILLEGAL_INSTRUCTION, zeroExtend (instr));
       end
       else begin
+`ifdef MCU_LITE
+         let csr_val = rg_csr_rval;
+`else
          // Read the CSR only if Rd is not 0
          WordXL csr_val = ?;
          if (rd != 0) begin
-            // TODO: csr_regfile.read should become ActionValue (it may have side effects)
             let m_csr_val = csr_regfile.read_csr (csr_addr);
             csr_val   = fromMaybe (?, m_csr_val);
          end
+`endif
 
          // Writeback to GPR file
          let new_rd_val = csr_val;
@@ -1919,10 +2000,14 @@ module mkCPU (CPU_IFC);
             , pc, exc_code_ILLEGAL_INSTRUCTION, zeroExtend (instr));
       end
       else begin
+`ifdef MCU_LITE
+         let csr_val = rg_csr_rval;
+`else
          // Read the CSR
          // TODO: csr_regfile.read should become ActionValue (it may have side effects)
          let m_csr_val  = csr_regfile.read_csr (csr_addr);
          WordXL csr_val = fromMaybe (?, m_csr_val);
+`endif
 
          // Writeback to GPR file
          let new_rd_val = csr_val;
@@ -1962,6 +2047,25 @@ module mkCPU (CPU_IFC);
       end
    endrule
 
+
+`ifdef MCU_LITE
+   // ================================================================
+   // The CPU enters this state on an error and remains here until
+   // a reset brings it back. Details about the error is available
+   // in the rg_trap_info register and may be used for diagnostic
+   // purposes
+   rule rl_error (rg_state == CPU_ERROR);
+`ifndef SYNTHESIS
+      $display ("%06d:[D]:%m.rl_error: CPU_ERROR", cur_cycle);
+      $display ("        rg_trap_info: ", fshow (rg_trap_info));
+      fa_report_CPI;
+      $display ("Hard reset to restart. Killing simulation.");
+      $fflush(stdout);
+      $finish (0);
+`endif
+   endrule
+
+`else
 
    // ================================================================
    // Traps (except BREAKs that enter Debug Mode)
@@ -2055,6 +2159,7 @@ module mkCPU (CPU_IFC);
       if (cur_verbosity > 1)
          $display ("%0d:[D]:%m.rl_restart_trap: pc 0x%0h", cur_cycle, rg_pc);
    endrule
+`endif   // ifndef MCU_LITE
 
    // ================================================================
    // Debug Mode (enter on BREAK trap when dcsr.ebreakm/s/u is set)
@@ -2485,15 +2590,17 @@ module mkCPU (CPU_IFC);
    // ----------------
    // Interface to 'coherent DMA' port of optional L2 cache
    // (non-coherent DMA backdoor for TCMs)
-
-`ifdef INCLUDE_GDB_CONTROL
-   interface Server dbg_server = near_mem.dbg_server;
-`endif
-
 `ifdef Near_Mem_TCM
 `ifdef TCM_LOADER
    interface Server dma_server = near_mem.dma_server;
 `endif
+`endif
+
+`ifdef ISA_X
+   interface XCPU_Ifc accel_ifc;
+      interface Server x_mem = near_mem.x_server;
+      interface Client x_compute = toGPClient (f_x_req, f_x_rsp);
+   endinterface
 `endif
 
    // ----------------------------------------------------------------
@@ -2530,6 +2637,20 @@ module mkCPU (CPU_IFC);
    // Optional interface to Debug Module
 
 `ifdef INCLUDE_GDB_CONTROL
+   interface Server mem_dbg_server;
+      interface Put request;
+         method Action put (SB_Sys_Req req) if (rg_state == CPU_DEBUG_MODE);
+            near_mem.dbg_server.request.put (req);
+         endmethod
+      endinterface
+      interface Get response;
+         method ActionValue #(SB_Sys_Rsp) get if (rg_state == CPU_DEBUG_MODE);
+            let r <- near_mem.dbg_server.response.get ();
+            return (r);
+         endmethod
+      endinterface
+   endinterface
+
    interface CPU_DM_Ifc debug;
       // Reset
       interface Server  hart_reset_server = toGPServer (f_reset_reqs, f_reset_rsps);
@@ -2548,15 +2669,15 @@ module mkCPU (CPU_IFC);
       endinterface
 
       // GPR access
-      interface Server  hart_gpr_mem_server = toGPServer (f_gpr_reqs, f_gpr_rsps);
+      interface Server  gpr_dbg_server = toGPServer (f_gpr_reqs, f_gpr_rsps);
 
 `ifdef ISA_F
       // FPR access
-      interface Server  hart_fpr_mem_server = toGPServer (f_fpr_reqs, f_fpr_rsps);
+      interface Server  fpr_dbg_server = toGPServer (f_fpr_reqs, f_fpr_rsps);
 `endif
 
       // CSR access
-      interface Server  hart_csr_mem_server = toGPServer (f_csr_reqs, f_csr_rsps);
+      interface Server  csr_dbg_server = toGPServer (f_csr_reqs, f_csr_rsps);
    endinterface
 `else
    // Reset

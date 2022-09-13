@@ -288,6 +288,9 @@ typedef struct {
    Bool        is_op_FNMSUB      ;
    Bool        is_op_FNMADD      ;
 `endif
+`ifdef ISA_X
+   Bool        is_op_CUSTOM      ;
+`endif
 } Decoded_Opcode deriving (FShow, Bits);
 
 // Bit-blasted (micro-control) signals based on funct7
@@ -359,6 +362,10 @@ typedef struct {
    Bool        is_f3_AMO_D       ;
 `endif
 `endif
+
+`ifdef ISA_X
+   Bool        is_f3_CUSTOM_XD   ;
+`endif
 } Decoded_Funct3 deriving (FShow, Bits);
 
 
@@ -403,6 +410,9 @@ function Decoded_Opcode fv_decode_opcode (Opcode opc);
       , is_op_FMSUB    : (opc == op_FMSUB    )
       , is_op_FNMSUB   : (opc == op_FNMSUB   )
       , is_op_FNMADD   : (opc == op_FNMADD   )
+`endif
+`ifdef ISA_X
+      , is_op_CUSTOM   : (opc == op_CUSTOM   )
 `endif
    };
 endfunction
@@ -477,6 +487,9 @@ function Decoded_Funct3 fv_decode_f3 (Bit #(3) f3);
 `ifdef RV64                                
       , is_f3_AMO_D     : (f3 == f3_AMO_D       )
 `endif
+`endif
+`ifdef ISA_X
+      , is_f3_CUSTOM_XD : (f3[xd_bitpos] == 1'b1)
 `endif
    };
 endfunction
@@ -968,6 +981,13 @@ Opcode op_JAL  = 7'b11_011_11;
 
 Opcode op_JALR = 7'b11_001_11;
 Bit #(3) funct3_JALR = 3'b000;
+
+`ifdef ISA_X
+Opcode  op_CUSTOM = 7'b00_010_11;
+Integer xd_bitpos = 2;
+Integer xs1_bitpos = 1;
+Integer xs2_bitpos = 0;
+`endif
 
 `ifdef ISA_F
 // ================================================================

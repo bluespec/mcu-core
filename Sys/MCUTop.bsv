@@ -4,8 +4,9 @@ package MCUTop;
 
 // ================================================================
 // 
-// This package defines the interface and implementation of the 
-// top-level for the micro-controller (MCU) core. 
+// This package integrates the top-level of the MCU Core (BSCore)
+// with the top-level of the RISC-V Debug Module (BSDebug) and
+// offers standard interfaces (AMBA/GPIO and JTAG) to the SoC
 //
 // This core contains:
 //    - BSCore
@@ -25,6 +26,8 @@ import Clocks           :: *;
 
 // ================================================================
 // Project imports
+import ISA_Decls        :: *;
+import CPU_Globals      :: *;
 
 // The core
 import BSCore           :: *;

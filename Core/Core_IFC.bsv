@@ -24,15 +24,18 @@ import ClientServer  :: *;
 // ================================================================
 // Project imports
 
-import Near_Mem_IFC :: *;    // For Wd_{Id,Addr,Data,User}_Dma
+import Near_Mem_IFC     :: *;    // For Wd_{Id,Addr,Data,User}_Dma
+
+import ISA_Decls        :: *;
+import CPU_Globals      :: *;
 
 // Main fabric
-import AXI4_Types   :: *;
-import Fabric_Defs  :: *;
+import AXI4_Types       :: *;
+import Fabric_Defs      :: *;
 
 `ifdef FABRIC_AHBL
-import AHBL_Types   :: *;
-import AHBL_Defs    :: *;
+import AHBL_Types       :: *;
+import AHBL_Defs        :: *;
 `endif
 
 `ifdef FABRIC_APB
@@ -44,7 +47,11 @@ import APB_Defs         :: *;
 import Debug_Interfaces :: *;
 `endif
 
-import DM_CPU_Req_Rsp    :: *;   // for SB_Sys_Req
+import DM_CPU_Req_Rsp   :: *;   // for SB_Sys_Req
+
+`ifdef ISA_X
+import XTypes           :: *;
+`endif
 
 // ================================================================
 // The Core interface
@@ -81,7 +88,12 @@ interface Core_IFC;
    interface Server #(SB_Sys_Req, Bool)  dma_server;
 `endif
 `endif
-  
+
+`ifdef ISA_X
+   // Coprocessor extension interface
+   interface XCPU_Ifc accel_ifc;
+`endif
+
    // ----------------
    // External interrupts
 

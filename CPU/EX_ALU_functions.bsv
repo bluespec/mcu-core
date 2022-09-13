@@ -810,6 +810,7 @@ endfunction
 // MISC_MEM (FENCE and FENCE.I)
 // nops, on Magritte-TCM
 
+`ifndef MCU_LITE
 function ALU_Outputs fv_MISC_MEM (ALU_Inputs inputs);
    let alu_outputs = alu_outputs_base;
    alu_outputs.control  = (  (inputs.ucontrol.f3.is_f3_FENCE_I)
@@ -827,6 +828,7 @@ function ALU_Outputs fv_MISC_MEM (ALU_Inputs inputs);
 `endif
    return alu_outputs;
 endfunction
+`endif
 
 // ----------------------------------------------------------------
 // System instructions
@@ -859,80 +861,84 @@ function ALU_Outputs fv_SYSTEM (ALU_Inputs inputs);
 	 end
       else
 `endif
-      if ((rd  == 0) && (rs1 == 0))
-	 begin
-	    // ECALL instructions
-	    if (inputs.ucontrol.f12.is_f12_ECALL) begin
-	       alu_outputs.control  = CONTROL_TRAP;
-`ifdef MIN_CSR
-	       alu_outputs.exc_code = exc_code_ECALL_FROM_M;
-`else
-	       alu_outputs.exc_code = ((inputs.cur_priv == u_Priv_Mode)
-				       ? exc_code_ECALL_FROM_U
-				       : ((inputs.cur_priv == s_Priv_Mode)
-					  ? exc_code_ECALL_FROM_S
-					  : exc_code_ECALL_FROM_M));
-`endif
-	    end
+      if ((rd  == 0) && (rs1 == 0)) begin
+`ifdef MCU_LITE
+         // Only WFI and MRET instructions recognized from this
+         // set. All others result in an error condition
+         if ((inputs.ucontrol.f12.is_f12_MRET)) begin
+            alu_outputs.control = CONTROL_MRET;
+         end
 
-	    // EBREAK instruction
-	    else if (inputs.ucontrol.f12.is_f12_EBREAK) begin
-	       alu_outputs.control  = CONTROL_TRAP;
-	       alu_outputs.exc_code = exc_code_BREAKPOINT;
-	    end
+         else if (inputs.ucontrol.f12.is_f12_WFI) begin
+            alu_outputs.control = CONTROL_WFI;
+         end
 
-	    // MRET instruction
-`ifdef MIN_CSR
-	    else if ((inputs.ucontrol.f12.is_f12_MRET))
+         else begin
+            alu_outputs.control = CONTROL_TRAP;
+         end
 `else
-	    else if (   (inputs.cur_priv >= m_Priv_Mode)
-		     && (inputs.ucontrol.f12.is_f12_MRET))
+         // ECALL instructions
+         if (inputs.ucontrol.f12.is_f12_ECALL) begin
+            alu_outputs.control  = CONTROL_TRAP;
+`ifdef MIN_CSR
+            alu_outputs.exc_code = exc_code_ECALL_FROM_M;
+`else
+            alu_outputs.exc_code = ((inputs.cur_priv == u_Priv_Mode)
+                                    ? exc_code_ECALL_FROM_U
+                                    : ((inputs.cur_priv == s_Priv_Mode)
+                                       ? exc_code_ECALL_FROM_S
+                                       : exc_code_ECALL_FROM_M));
 `endif
-	       begin
-		  alu_outputs.control = CONTROL_MRET;
-	       end
+         end
+
+         // EBREAK instruction
+         else if (inputs.ucontrol.f12.is_f12_EBREAK) begin
+            alu_outputs.control  = CONTROL_TRAP;
+            alu_outputs.exc_code = exc_code_BREAKPOINT;
+         end
+
+         // MRET instruction
+`ifdef MIN_CSR
+         else if ((inputs.ucontrol.f12.is_f12_MRET)) begin
+`else
+         else if (   (inputs.cur_priv >= m_Priv_Mode)
+                  && (inputs.ucontrol.f12.is_f12_MRET)) begin
+`endif
+               alu_outputs.control = CONTROL_MRET;
+         end
 
 `ifdef ISA_PRIV_S
-	    // SRET instruction
-	    else if (   (   (inputs.cur_priv == m_Priv_Mode)
-			 || (   (inputs.cur_priv == s_Priv_Mode)
-			     && (inputs.mstatus [mstatus_tsr_bitpos] == 0)))
-		     && (inputs.ucontrol.f12.is_f12_SRET))
-	       begin
-		  alu_outputs.control = CONTROL_SRET;
-	       end
+         // SRET instruction
+         else if (   (   (inputs.cur_priv == m_Priv_Mode)
+                      || (   (inputs.cur_priv == s_Priv_Mode)
+                          && (inputs.mstatus [mstatus_tsr_bitpos] == 0)))
+                  && (inputs.ucontrol.f12.is_f12_SRET)) begin
+            alu_outputs.control = CONTROL_SRET;
+         end
 `endif
 
-	    /*
-	    // URET instruction (future: Piccolo does not support 'N' extension)
-	    else if (   (inputs.cur_priv >= u_Priv_Mode)
-		     && (inputs.decoded_instr.imm12_I == f12_URET))
-	       begin
-		  alu_outputs.control = CONTROL_URET;
-	       end
-	    */
-
-	    // WFI instruction
+         // WFI instruction
 `ifdef MIN_CSR
-            // With CSR_Regfile_Min there is a single privilege level (M)
-            // MSTATUS.TW bit is always 0. MISA.N = 0.
-	    else if (inputs.ucontrol.f12.is_f12_WFI) begin
+         // With CSR_Regfile_Min there is a single privilege level (M)
+         // MSTATUS.TW bit is always 0. MISA.N = 0.
+         else if (inputs.ucontrol.f12.is_f12_WFI) begin
 `else
-	    else if (   (   (inputs.cur_priv == m_Priv_Mode)
-			 || (   (inputs.cur_priv == s_Priv_Mode)
-			     && (inputs.mstatus [mstatus_tw_bitpos] == 0))
-			 || (   (inputs.cur_priv == u_Priv_Mode)
-			     && (inputs.misa.n == 1)))
-		     && (inputs.ucontrol.f12.is_f12_WFI))
-	       begin
+         else if (   (   (inputs.cur_priv == m_Priv_Mode)
+                      || (   (inputs.cur_priv == s_Priv_Mode)
+                          && (inputs.mstatus [mstatus_tw_bitpos] == 0))
+                      || (   (inputs.cur_priv == u_Priv_Mode)
+                          && (inputs.misa.n == 1)))
+                  && (inputs.ucontrol.f12.is_f12_WFI))
+            begin
 `endif
-               alu_outputs.control = CONTROL_WFI;
-	    end
+            alu_outputs.control = CONTROL_WFI;
+         end
 
-	    else begin
-	       alu_outputs.control = CONTROL_TRAP;
-	    end
-	 end
+         else begin
+            alu_outputs.control = CONTROL_TRAP;
+         end
+`endif   // ifndef MCU_LITE
+      end
 
       else begin
 	 alu_outputs.control = CONTROL_TRAP;

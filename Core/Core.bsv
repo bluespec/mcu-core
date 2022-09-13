@@ -52,6 +52,10 @@ import Debug_Interfaces  :: *;
 import Debug_Triage      :: *;
 `endif
 
+`ifdef ISA_X
+import XTypes           :: *;
+`endif
+
 import DM_CPU_Req_Rsp    :: *;   // for SB_Sys_Req
 
 import Core_IFC          :: *;
@@ -158,9 +162,9 @@ module mkCore (Core_IFC);
    let dm_stub <- mkDebugTriage(
       dm_reset_server
     , cpu.debug.hart_server_run_halt
-    , cpu.debug.hart_gpr_mem_server
-    , cpu.debug.hart_csr_mem_server
-    , cpu.dbg_server
+    , cpu.debug.gpr_dbg_server
+    , cpu.debug.csr_dbg_server
+    , cpu.mem_dbg_server
  );
 `endif
 
@@ -227,6 +231,10 @@ module mkCore (Core_IFC);
    // Interface to 'DMA' port for TCM loading
    interface Server dma_server = cpu.dma_server;
 `endif
+`endif
+
+`ifdef ISA_X
+   interface XCPU_Ifc accel_ifc = cpu.accel_ifc;
 `endif
 
    // ----------------------------------------------------------------

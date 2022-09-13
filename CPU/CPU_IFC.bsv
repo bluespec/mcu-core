@@ -4,26 +4,29 @@
 //    INCLUDE_GDB_CONTROL
 //    INCLUDE TANDEM_VERIF
 //    MIN_CSR
+//    ISA_X
 //    Near_Mem_TCM
-//       FABRIC_AXI4 or FABRIC_AHBL or FABRIC_APB
+//       FABRIC_AXI4/ FABRIC_AHBL/ FABRIC_APB/ FABRIC_GPIO
 //       WATCH_TOHOST
-//    INCLUDE_DMEM_SLAVE
+//       TCM_LOADER
 
 package CPU_IFC;
 
 // ================================================================
 // BSV library imports
 
-import GetPut       :: *;
-import ClientServer :: *;
+import GetPut           :: *;
+import ClientServer     :: *;
 
 // ================================================================
 // Project imports
 
-import ISA_Decls       :: *;
+import ISA_Decls        :: *;
 
-import AXI4_Types  :: *;
-import Fabric_Defs :: *;
+import CPU_Globals      :: *;
+
+import AXI4_Types       :: *;
+import Fabric_Defs      :: *;
 
 `ifdef FABRIC_AHBL
 import AHBL_Types       :: *;
@@ -39,13 +42,16 @@ import APB_Defs         :: *;
 import Debug_Interfaces :: *;
 `endif
 
-import DM_CPU_Req_Rsp    :: *;   // for SB_Sys_Req
+import DM_CPU_Req_Rsp   :: *;   // for SB_Sys_Req
 
 `ifdef INCLUDE_TANDEM_VERIF
-import TV_Info         :: *;
+import TV_Info          :: *;
 `endif
 
-import Near_Mem_IFC :: *;    // For Wd_Id/Addr/Data/User_Dma/Near_Mem_IFC
+import Near_Mem_IFC     :: *;    // For Wd_Id/Addr/Data/User_Dma/Near_Mem_IFC
+`ifdef ISA_X
+import XTypes           :: *;
+`endif
 
 // ================================================================
 // CPU interface
@@ -69,14 +75,20 @@ interface CPU_IFC;
     // DMA and debug interfaces
 `ifdef INCLUDE_GDB_CONTROL
    // AXI4 DMA target interface (for backdoor loading of TCMs in debug mode)
-   interface Server #(SB_Sys_Req, SB_Sys_Rsp) dbg_server;
+   interface Server #(SB_Sys_Req, SB_Sys_Rsp) mem_dbg_server;
 `endif
+
 `ifdef Near_Mem_TCM
 `ifdef TCM_LOADER
    // ----------------
    // Interface to 'DMA' port for TCM loading
    interface Server #(SB_Sys_Req, Bool) dma_server;
 `endif
+`endif
+
+`ifdef ISA_X
+   // Coprocessor extension interface
+   interface XCPU_Ifc accel_ifc;
 `endif
 
    // ----------------

@@ -6,6 +6,12 @@ package CSR_RegFile_Min;
 // CSR (Control and Status Register) Register File
 
 // Supports a minimal set of machine mode CSRs.
+// Macros Supported:
+//
+// MCU_LITE: Reduces the number of CSRs accessible through CSR*
+// instructions making them inaccessible to software. For instance
+// the MINSTRET* and MCYCLE* registers are implemented but are only
+// accessed for internal bookkeeping by the hardware. 
 
 // ================================================================
 // Exports
@@ -238,13 +244,6 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
    // Reset
    FIFOF #(Token) f_reset_rsps <- mkFIFOF;
 
-   // Supervisor-mode CSRs
-   Bit #(16)  sedeleg = 0;    // hardwired to 0
-   Bit #(12)  sideleg = 0;    // hardwired to 0
-
-   Bit #(16)         rg_medeleg   = 0;
-   Bit #(12)         rg_mideleg   = 0;
-
    // Machine-mode CSRs
    Word mvendorid   = 0;    // Not implemented
    Word marchid     = 0;    // Not implemented
@@ -258,7 +257,9 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
 
    Reg #(MTVec)      rg_mtvec      <- mkRegU;
 
+`ifndef MCU_LITE
    Reg #(Word)       rg_mscratch <- mkRegU;
+`endif
    Reg #(Word)       rg_mepc     <- mkRegU;
    Reg #(MCause)     rg_mcause   <- mkRegU;
    Reg #(Word)       rg_mtval    <- mkRegU;
@@ -369,20 +370,22 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
                         (csr_addr == csr_addr_mstatus)
                      || (csr_addr == csr_addr_mie)
                      || (csr_addr == csr_addr_mtvec)
-                     || (csr_addr == csr_addr_mhartid)   // Added to support FreeRTOS
-
-                     || (csr_addr == csr_addr_mepc)
+`ifndef MCU_LITE
+                     || (csr_addr == csr_addr_misa)
+                     || (csr_addr == csr_addr_mhartid)   // For FreeRTOS
                      || (csr_addr == csr_addr_mscratch)
-                     || (csr_addr == csr_addr_mcause)
-                     || (csr_addr == csr_addr_mtval)
-                     || (csr_addr == csr_addr_mip)
 
                      || (csr_addr == csr_addr_mcycle)
                      || (csr_addr == csr_addr_minstret)
 `ifdef RV32
                      || (csr_addr == csr_addr_mcycleh)
                      || (csr_addr == csr_addr_minstreth)
-`endif
+`endif   // RV32
+`endif   // MCU_LITE
+                     || (csr_addr == csr_addr_mepc)
+                     || (csr_addr == csr_addr_mcause)
+                     || (csr_addr == csr_addr_mtval)
+                     || (csr_addr == csr_addr_mip)
 
 `ifdef INCLUDE_GDB_CONTROL
                      || (csr_addr == csr_addr_dcsr)
@@ -402,14 +405,24 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
       Maybe #(Word)  m_csr_value = tagged Invalid;
 
       case (csr_addr)
+`ifndef MCU_LITE
          // Machine mode csrs
-         csr_addr_mhartid:    m_csr_value = tagged Valid mhartid; // Added to support FreeRTOS
+         csr_addr_mhartid:    m_csr_value = tagged Valid mhartid; // For FreeRTOS
          csr_addr_misa:       m_csr_value = tagged Valid (misa_to_word (misa));
+         csr_addr_mscratch:   m_csr_value = tagged Valid rg_mscratch;
+
+         csr_addr_mcycle:    m_csr_value = tagged Valid (truncate (rg_mcycle));
+         csr_addr_minstret:  m_csr_value = tagged Valid (truncate (rg_minstret));
+`ifdef RV32
+         csr_addr_mcycleh:   m_csr_value = tagged Valid (rg_mcycle [63:32]);
+         csr_addr_minstreth: m_csr_value = tagged Valid (rg_minstret [63:32]);
+`endif   // RV32
+
+`endif   // MCU_LITE
          csr_addr_mstatus:    m_csr_value = tagged Valid (csr_mstatus.mv_read);
          csr_addr_mie:        m_csr_value = tagged Valid (csr_mie.mv_read);
          csr_addr_mtvec:      m_csr_value = tagged Valid (mtvec_to_word (rg_mtvec));
 
-         csr_addr_mscratch:   m_csr_value = tagged Valid rg_mscratch;
 `ifdef ISA_C
          csr_addr_mepc:       m_csr_value = tagged Valid ((misa.c == 1'b1) ? rg_mepc : (rg_mepc & (~ 2)));
 `else
@@ -418,13 +431,6 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
          csr_addr_mcause:     m_csr_value = tagged Valid (mcause_to_word (rg_mcause));
          csr_addr_mtval:      m_csr_value = tagged Valid rg_mtval;
          csr_addr_mip:        m_csr_value = tagged Valid (csr_mip.mv_read);
-
-         csr_addr_mcycle:    m_csr_value = tagged Valid (truncate (rg_mcycle));
-         csr_addr_minstret:  m_csr_value = tagged Valid (truncate (rg_minstret));
-`ifdef RV32
-         csr_addr_mcycleh:   m_csr_value = tagged Valid (rg_mcycle [63:32]);
-         csr_addr_minstreth: m_csr_value = tagged Valid (rg_minstret [63:32]);
-`endif
 
 `ifdef INCLUDE_GDB_CONTROL
          csr_addr_dcsr:       begin
@@ -481,23 +487,11 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
                new_csr_value = mtvec_to_word (mtvec);
                rg_mtvec     <= mtvec;
             end
+`ifndef MCU_LITE
             csr_addr_mscratch: begin
                new_csr_value = wordxl;
                rg_mscratch  <= new_csr_value;
             end
-            csr_addr_mepc: begin
-               new_csr_value = (wordxl & (~ 3));    // mepc [1:0] always zero
-               rg_mepc      <= new_csr_value;
-            end
-            csr_addr_mcause: begin
-               let mcause    = word_to_mcause (wordxl);
-               new_csr_value = mcause_to_word (mcause);
-               rg_mcause    <= mcause;
-            end
-            csr_addr_mtval:      begin
-                                    new_csr_value = wordxl;
-                                    rg_mtval     <= new_csr_value;
-                                 end
 `ifdef RV32
             csr_addr_mcycle:     begin
                                     new_csr_value = wordxl;
@@ -524,9 +518,21 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
                                     new_csr_value = wordxl;
                                     rw_minstret.wset (new_csr_value);
                                  end
-`endif
-
-	    csr_addr_mhartid:    new_csr_value = mhartid;      // hardwired   -- added to support FreeRTOS
+`endif   // RV32
+`endif   // MCU_LITE
+            csr_addr_mepc: begin
+               new_csr_value = (wordxl & (~ 3));    // mepc [1:0] always zero
+               rg_mepc      <= new_csr_value;
+            end
+            csr_addr_mcause: begin
+               let mcause    = word_to_mcause (wordxl);
+               new_csr_value = mcause_to_word (mcause);
+               rg_mcause    <= mcause;
+            end
+            csr_addr_mtval:      begin
+                                    new_csr_value = wordxl;
+                                    rg_mtval     <= new_csr_value;
+                                 end
 `ifdef INCLUDE_GDB_CONTROL
             csr_addr_dcsr:       begin
                                     Bit #(32) new_dcsr
