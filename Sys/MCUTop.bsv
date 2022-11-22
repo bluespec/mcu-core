@@ -91,10 +91,6 @@ interface MCUTop_IFC;
    (* always_ready, always_enabled *)
    method Action cpu_halt(Bool x);
 `endif
-`ifdef WATCH_TOHOST
-   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
-   method Fabric_Data mv_tohost_value;
-`endif
 `endif
 
    // Debug related sub-interfaces
@@ -168,15 +164,6 @@ module mkMCUTop (MCUTop_IFC);
    interface dma_server = bscore.dma_server;
    method Action cpu_halt (Bool x) = bscore.cpu_halt (x);
    method reset_done = bscore.reset_done;
-`endif
-
-`ifdef WATCH_TOHOST
-   // For ISA tests: watch memory writes to <tohost> addr
-   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
-      bscore.set_watch_tohost (watch_tohost, tohost_addr);
-   endmethod
-
-   method Fabric_Data mv_tohost_value = bscore.mv_tohost_value;
 `endif
 `endif
 

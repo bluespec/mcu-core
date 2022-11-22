@@ -142,16 +142,6 @@ interface Core_IFC;
    method Action  set_verbosity (Bit #(2)  verbosity);
 `endif
 
-   // ----------------
-   // For ISA tests: watch memory writes to <tohost> addr
-
-`ifdef Near_Mem_TCM
-`ifdef WATCH_TOHOST
-   method Action set_watch_tohost (Bool watch_tohost, Fabric_Addr tohost_addr);
-   method Fabric_Data mv_tohost_value;
-`endif
-`endif
-
 endinterface
 
 // ================================================================

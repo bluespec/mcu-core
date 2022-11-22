@@ -125,15 +125,6 @@ interface BSCore_IFC;
 `endif
 
 
-   // ----------------
-   // For ISA tests: watch memory writes to <tohost> addr
-`ifdef Near_Mem_TCM
-`ifdef WATCH_TOHOST
-   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
-   method Fabric_Data mv_tohost_value;
-`endif
-`endif
-
 `ifndef SYNTHESIS
    // ----------------
    // Debugging: set core's verbosity
@@ -317,17 +308,6 @@ module mkBSCore (BSCore_IFC);
       end
    endmethod
    method reset_done = rg_reset_done;
-`endif
-`endif
-
-`ifdef Near_Mem_TCM
-`ifdef WATCH_TOHOST
-   // For ISA tests: watch memory writes to <tohost> addr
-   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
-      core.set_watch_tohost (watch_tohost, tohost_addr);
-   endmethod
-
-   method Fabric_Data mv_tohost_value = core.mv_tohost_value;
 `endif
 `endif
 

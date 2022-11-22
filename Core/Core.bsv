@@ -246,19 +246,6 @@ module mkCore (Core_IFC);
    endmethod
 `endif
 
-   // ----------------
-   // For ISA tests: watch memory writes to <tohost> addr
-
-`ifdef Near_Mem_TCM
-`ifdef WATCH_TOHOST
-   method Action set_watch_tohost (Bool watch_tohost, Fabric_Addr tohost_addr);
-      cpu.set_watch_tohost (watch_tohost, tohost_addr);
-   endmethod
-
-   method Fabric_Data mv_tohost_value = cpu.mv_tohost_value;
-`endif
-`endif
-
 endmodule: mkCore
 
 `ifdef INCLUDE_GDB_CONTROL
