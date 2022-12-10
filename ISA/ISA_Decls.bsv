@@ -248,7 +248,7 @@ deriving (FShow, Bits);
 // ----------------
 // These signals are a part of the decode
 // XXX incomplete. Does not handle F/D.
-// Bit-blasted (micro-control) signals 
+// Bit-blasted (micro-control) signals
 typedef struct {
    Decoded_Opcode    opcode;
    Decoded_Funct7    f7;
@@ -308,15 +308,15 @@ typedef struct {
 // Bit-blasted (micro-control) signals based on funct5
 `ifdef ISA_A
 typedef struct {
-   Bool        is_f5_AMO_LR      ; 
+   Bool        is_f5_AMO_LR      ;
    Bool        is_f5_AMO_ADD     ;
    Bool        is_f5_AMO_SWAP    ;
    Bool        is_f5_AMO_AND     ;
    Bool        is_f5_AMO_MIN     ;
    Bool        is_f5_AMO_MAX     ;
-   Bool        is_f5_AMO_SC      ;        
-   Bool        is_f5_AMO_OR      ;        
-   Bool        is_f5_AMO_XOR     ;        
+   Bool        is_f5_AMO_SC      ;
+   Bool        is_f5_AMO_OR      ;
+   Bool        is_f5_AMO_XOR     ;
    Bool        is_f5_AMO_MINU    ;
    Bool        is_f5_AMO_MAXU    ;
 } Decoded_Funct5 deriving (FShow, Bits);
@@ -390,8 +390,8 @@ function Decoded_Opcode fv_decode_opcode (Opcode opc);
       , is_op_OP       : (opc == op_OP       )
       , is_op_OP_IMM   : (opc == op_OP_IMM   )
 `ifdef RV64
-      , is_op_OP_32    : (opc == op_OP_32    )
-      , is_op_OP_IMM_32: (opc == op_OP_IMM_32)
+      , is_op_OP32     : (opc == op_OP_32    )
+      , is_op_OP_IMM32 : (opc == op_OP_IMM_32)
 `endif
       , is_op_LUI      : (opc == op_LUI      )
       , is_op_AUIPC    : (opc == op_AUIPC    )
@@ -403,7 +403,7 @@ function Decoded_Opcode fv_decode_opcode (Opcode opc);
       , is_op_AMO      : (opc == op_AMO      )
 `endif
 `ifdef ISA_F
-      , is_op_FP       : (opc == op_FP       ) 
+      , is_op_FP       : (opc == op_FP       )
       , is_op_LOAD_FP  : (opc == op_LOAD_FP  )
       , is_op_STORE_FP : (opc == op_STORE_FP )
       , is_op_FMADD    : (opc == op_FMADD    )
@@ -425,10 +425,10 @@ function Decoded_Funct7 fv_decode_f7 (Bit #(7) f7);
       , is_f7_SUB          : (f7 == funct7_SUB     )
 `ifdef ISA_PRIV_S
       , is_f7_SFENCE_VMA   : (f7 == f7_SFENCE_VMA  )
-`endif                       
-`ifdef ISA_M                 
+`endif
+`ifdef ISA_M
       , is_f7_MUL_DIV_REM  : (f7 == f7_MUL_DIV_REM )
-`endif                       
+`endif
    };
 endfunction
 
@@ -474,7 +474,7 @@ function Decoded_Funct3 fv_decode_f3 (Bit #(3) f3);
       , is_LDST_legal   : fv_is_LDST_legal (f3)
       , is_f3_FENCE     : (f3 == f3_FENCE       )
       , is_f3_FENCE_I   : (f3 == f3_FENCE_I     )
-      
+
       , is_f3_PRIV      : (f3 == f3_PRIV        )
       , is_f3_CSRRW     : (f3 == f3_CSRRW       )
       , is_f3_CSRRS     : (f3 == f3_CSRRS       )
@@ -484,7 +484,7 @@ function Decoded_Funct3 fv_decode_f3 (Bit #(3) f3);
       , is_f3_CSRRCI    : (f3 == f3_CSRRCI      )
 `ifdef ISA_A
       , is_f3_AMO_W     : (f3 == f3_AMO_W       )
-`ifdef RV64                                
+`ifdef RV64
       , is_f3_AMO_D     : (f3 == f3_AMO_D       )
 `endif
 `endif
@@ -557,7 +557,7 @@ endfunction
 //    if (di.opcode != op_FP) begin
 //       return (tuple2 (False, True));   // Regular op with GPR read
 //    end
-// 
+//
 //    // This is an FP operation. The following f5 values would work for F and
 //    // D subsets
 //    else begin
@@ -1149,15 +1149,15 @@ endfunction
 
 // Check if a rounding mode value in the FCSR.FRM is valid
 function Bool fv_fcsr_frm_valid (Bit #(3) frm);
-   return (   (frm != 3'b101) 
+   return (   (frm != 3'b101)
            && (frm != 3'b110)
            && (frm != 3'b111)
           );
-endfunction 
+endfunction
 
 // Check if a rounding mode value in the instr is valid
 function Bool fv_inst_frm_valid (Bit #(3) frm);
-   return (   (frm != 3'b101) 
+   return (   (frm != 3'b101)
            && (frm != 3'b110)
           );
 endfunction
@@ -1188,14 +1188,14 @@ function Bool fv_is_fp_instr_legal (
       return (f2 == f2_S);                   // Only SP is legal
 `endif
    else
-      if (    (f7 == f7_FADD_S)  
-          ||  (f7 == f7_FSUB_S)  
-          ||  (f7 == f7_FMUL_S)  
+      if (    (f7 == f7_FADD_S)
+          ||  (f7 == f7_FSUB_S)
+          ||  (f7 == f7_FMUL_S)
 `ifdef INCLUDE_FDIV
-          ||  (f7 == f7_FDIV_S)  
+          ||  (f7 == f7_FDIV_S)
 `endif
 `ifdef INCLUDE_FSQRT
-          ||  (f7 == f7_FSQRT_S) 
+          ||  (f7 == f7_FSQRT_S)
 `endif
           || ((f7 == f7_FSGNJ_S)  && ( rm == 0))
           || ((f7 == f7_FSGNJ_S)  && ( rm == 1))
@@ -1205,10 +1205,10 @@ function Bool fv_is_fp_instr_legal (
 `ifdef RV64
           || ((f7 == f7_FCVT_L_S) && (rs2 == 2))
           || ((f7 == f7_FCVT_LU_S)&& (rs2 == 3))
-`endif                            
+`endif
           || ((f7 == f7_FCVT_S_W) && (rs2 == 0))
-          || ((f7 == f7_FCVT_S_WU)&& (rs2 == 1))             
-`ifdef RV64                       
+          || ((f7 == f7_FCVT_S_WU)&& (rs2 == 1))
+`ifdef RV64
           || ((f7 == f7_FCVT_S_L) && (rs2 == 2))
           || ((f7 == f7_FCVT_S_LU)&& (rs2 == 3))
 `endif
@@ -1221,14 +1221,14 @@ function Bool fv_is_fp_instr_legal (
           || ((f7 == f7_FMV_W_X)  && ( rm == 0))
           || ((f7 == f7_FCLASS_S) && ( rm == 1))
 `ifdef ISA_D
-          ||  (f7 == f7_FADD_D)  
-          ||  (f7 == f7_FSUB_D)  
-          ||  (f7 == f7_FMUL_D)  
+          ||  (f7 == f7_FADD_D)
+          ||  (f7 == f7_FSUB_D)
+          ||  (f7 == f7_FMUL_D)
 `ifdef INCLUDE_FDIV
-          ||  (f7 == f7_FDIV_D)  
+          ||  (f7 == f7_FDIV_D)
 `endif
 `ifdef INCLUDE_FSQRT
-          ||  (f7 == f7_FSQRT_D) 
+          ||  (f7 == f7_FSQRT_D)
 `endif
           || ((f7 == f7_FSGNJ_D)  && ( rm == 0))
           || ((f7 == f7_FSGNJ_D)  && ( rm == 1))
@@ -1238,10 +1238,10 @@ function Bool fv_is_fp_instr_legal (
 `ifdef RV64
           || ((f7 == f7_FCVT_L_D) && (rs2 == 2))
           || ((f7 == f7_FCVT_LU_D)&& (rs2 == 3))
-`endif                            
+`endif
           || ((f7 == f7_FCVT_D_W) && (rs2 == 0))
-          || ((f7 == f7_FCVT_D_WU)&& (rs2 == 1))             
-`ifdef RV64                       
+          || ((f7 == f7_FCVT_D_WU)&& (rs2 == 1))
+`ifdef RV64
           || ((f7 == f7_FCVT_D_L) && (rs2 == 2))
           || ((f7 == f7_FCVT_D_LU)&& (rs2 == 3))
 `endif
@@ -1458,7 +1458,7 @@ CSR_Addr   csr_addr_hpmcounter29h  = 12'hC9D;    // Upper 32 bits of performance
 CSR_Addr   csr_addr_hpmcounter30h  = 12'hC9E;    // Upper 32 bits of performance-monitoring counter
 CSR_Addr   csr_addr_hpmcounter31h  = 12'hC9F;    // Upper 32 bits of performance-monitoring counter
 
-// Information from the CSR on a new trap. 
+// Information from the CSR on a new trap.
 typedef struct {
    Addr        pc;
    WordXL      mstatus;
