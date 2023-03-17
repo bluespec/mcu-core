@@ -72,19 +72,14 @@ module mkGPR_RegFile (GPR_RegFile_IFC);
    // The spec does not require this, but it's useful for debugging
    // and tandem verification
 
-`ifdef INCLUDE_TANDEM_VERIF
    Reg #(RegName) rg_j <- mkRegU;    // reset loop index
-`endif
 
    rule rl_reset_start (rg_state == RF_RESET_START);
       rg_state <= RF_RESETTING;
-`ifdef INCLUDE_TANDEM_VERIF
       rg_j <= 1;
-`endif
    endrule
 
    rule rl_reset_loop (rg_state == RF_RESETTING);
-`ifdef INCLUDE_TANDEM_VERIF
       regfile.upd (rg_j, 0);
       rg_j <= rg_j + 1;
 `ifdef ISA_E
@@ -93,9 +88,6 @@ module mkGPR_RegFile (GPR_RegFile_IFC);
       if (rg_j == 31)
 `endif
 	 rg_state <= RF_RUNNING;
-`else
-      rg_state <= RF_RUNNING;
-`endif
    endrule
 
    // ----------------------------------------------------------------

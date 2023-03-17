@@ -23,7 +23,7 @@ package Core;
 //    FABRIC_AXI4 OR FABRIC_AHBL OR FABRIC_APB
 //    INCLUDE_GDB_CONTROL
 //    INCLUDE_TANDEM_VERIF
-//    WATCH_TOHOST
+//    MEM_TOHOST
 // ================================================================
 // BSV library imports
 
@@ -244,6 +244,16 @@ module mkCore (Core_IFC);
    method Action  set_verbosity (Bit #(2)  verbosity);
       cpu.set_verbosity (verbosity);
    endmethod
+
+   method Action ma_close_logs;
+      cpu.ma_close_logs;
+   endmethod
+
+`ifdef MEM_TOHOST
+   method Action set_watch_tohost (Bool watch_tohost, Fabric_Addr tohost_addr);
+      cpu.set_watch_tohost (watch_tohost, tohost_addr);
+   endmethod
+`endif
 `endif
 
 endmodule: mkCore

@@ -703,7 +703,7 @@ function ALU_Outputs fv_LD (ALU_Inputs inputs);
    IntXL  imm_s = extend (unpack (imm12));
    WordXL eaddr = pack (s_rs1_val + imm_s);
 
-   Bool legal_LD = inputs.ucontrol.f3.is_LDST_legal;
+   Bool legal_LD = inputs.ucontrol.f3.is_LD_legal;
 
    // FP loads are not legal unless the MSTATUS.FS bit is set
    Bool legal_FP_LD = True;
@@ -757,7 +757,7 @@ function ALU_Outputs fv_ST (ALU_Inputs inputs);
    IntXL  imm_s     = extend (unpack (imm12));
    WordXL eaddr     = pack (s_rs1_val + imm_s);
 
-   Bool legal_ST = inputs.ucontrol.f3.is_LDST_legal;
+   Bool legal_ST = inputs.ucontrol.f3.is_ST_legal;
 
    let alu_outputs = alu_outputs_base;
 

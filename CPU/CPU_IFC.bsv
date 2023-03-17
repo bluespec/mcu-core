@@ -7,7 +7,7 @@
 //    ISA_X
 //    Near_Mem_TCM
 //       FABRIC_AXI4/ FABRIC_AHBL/ FABRIC_APB/ FABRIC_GPIO
-//       WATCH_TOHOST
+//       MEM_TOHOST
 //       TCM_LOADER
 
 package CPU_IFC;
@@ -144,6 +144,15 @@ interface CPU_IFC;
    // Set core's verbosity
    (* always_ready *)
    method Action set_verbosity (Bit #(2)  verbosity);
+   (* always_ready *)
+   method Action ma_close_logs;
+
+   // ----------------
+   // For ISA tests: watch memory writes to <tohost> addr
+`ifdef MEM_TOHOST
+   method Action set_watch_tohost (Bool watch_tohost, Fabric_Addr tohost_addr);
+`endif
+
 `endif
 
 endinterface

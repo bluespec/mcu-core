@@ -303,6 +303,7 @@ typedef struct {
 `endif
    Bool        is_f7_ADD         ;  // ADD, SLL, SLT, SLTU, XOR, SRL, OR, AND
    Bool        is_f7_SUB         ;  // SUB, SRA
+   Bool        is_OP_legal       ;  // Either f7_ADD or f7_SIB 
 } Decoded_Funct7 deriving (FShow, Bits);
 
 // Bit-blasted (micro-control) signals based on funct5
@@ -343,7 +344,8 @@ typedef struct {
    Bool        is_f3_AND         ;
 
    // for loads-stores
-   Bool        is_LDST_legal     ;
+   Bool        is_LD_legal       ;
+   Bool        is_ST_legal       ;
    Bool        is_f3_FENCE       ;
    Bool        is_f3_FENCE_I     ;
 
@@ -423,6 +425,7 @@ function Decoded_Funct7 fv_decode_f7 (Bit #(7) f7);
    return Decoded_Funct7 {
         is_f7_ADD          : (f7 == funct7_ADD     )
       , is_f7_SUB          : (f7 == funct7_SUB     )
+      , is_OP_legal        : fv_is_OP_legal (f7)
 `ifdef ISA_PRIV_S
       , is_f7_SFENCE_VMA   : (f7 == f7_SFENCE_VMA  )
 `endif
@@ -471,7 +474,8 @@ function Decoded_Funct3 fv_decode_f3 (Bit #(3) f3);
       , is_f3_OR        : (f3 == f3_ORI         )
       , is_f3_AND       : (f3 == f3_ANDI        )
 
-      , is_LDST_legal   : fv_is_LDST_legal (f3)
+      , is_LD_legal     : fv_is_LD_legal (f3)
+      , is_ST_legal     : fv_is_ST_legal (f3)
       , is_f3_FENCE     : (f3 == f3_FENCE       )
       , is_f3_FENCE_I   : (f3 == f3_FENCE_I     )
 
@@ -527,7 +531,7 @@ endfunction
 
 
 // Checks if the LD/ST is legal
-function Bool fv_is_LDST_legal (Bit #(3) f3);
+function Bool fv_is_LD_legal (Bit #(3) f3);
    return (   (f3 == f3_LB    )
            || (f3 == f3_LBU   )
            || (f3 == f3_LH    )
@@ -544,6 +548,27 @@ function Bool fv_is_LDST_legal (Bit #(3) f3);
            || (f3 == f3_FLD   )
 `endif
    );
+endfunction
+
+function Bool fv_is_ST_legal (Bit #(3) f3);
+   return (   (f3 == f3_SB    )
+           || (f3 == f3_SH    )
+           || (f3 == f3_SW    )
+`ifdef RV64
+           || (f3 == f3_SD    )
+`endif
+`ifdef ISA_F
+           || (f3 == f3_FSW   )
+`endif
+`ifdef ISA_D
+           || (f3 == f3_FSD   )
+`endif
+   );
+endfunction
+
+// Check the f7 bits to ensure that hte op_OP is legal
+function Bool fv_is_OP_legal (Bit #(7) f7);
+   return ((f7 == funct7_ADD) || (f7 == funct7_SUB));
 endfunction
 
 // Decodes if we need to read the GPR register file. This step becomes necessary

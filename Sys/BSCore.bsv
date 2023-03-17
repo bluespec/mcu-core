@@ -128,7 +128,15 @@ interface BSCore_IFC;
 `ifndef SYNTHESIS
    // ----------------
    // Debugging: set core's verbosity
+   (* always_ready *)
    method Action  set_verbosity (Bit #(2)  verbosity);
+   (* always_ready *)
+   method Action  ma_close_logs;
+
+`ifdef MEM_TOHOST
+   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
+`endif
+
 `endif
 
 endinterface
@@ -148,7 +156,7 @@ module mkBSCore (BSCore_IFC);
    Core_IFC::Core_IFC core <- mkCore(reset_by coreRSTN);
 
    // ================================================================
-   // Tie-offs
+   // Tie-offs 
 
 `ifndef MIN_CSR
    // Tie-offs
@@ -160,14 +168,14 @@ module mkBSCore (BSCore_IFC);
 
    // ================================================================
    // Reset on startup, and also on NDM reset from Debug Module
-   // NDM reset from Debug Module = "non-debug-module-reset"
+   // NDM reset from Debug Module = "non-debug-module-reset" 
    //                             = reset all except Debug Module
 
    Reg #(Bool)          rg_once       <- mkReg (False); // also set False by ndmreset
    Reg #(Bool)          rg_reset_done <- mkReg (False);
    Reg #(Bool)          rg_last_cpuh  <- mkReg (False);
 
-   // To support an external loader to reset and halt the CPU
+   // To support an external loader to reset and halt the CPU 
    // Only used when the TCM_LOADER is enabled
    Reg #(Maybe #(Bool)) rg_ldr_reset  <- mkReg (tagged Invalid);
 
@@ -229,23 +237,18 @@ module mkBSCore (BSCore_IFC);
       Wd_Id, Wd_Addr, Wd_Data, Wd_User) deburstr <- mkAXI4_Deburster;
    mkConnection (deburstr.to_slave, loader_adapter.axi);
 `endif
-
+   
 `ifdef ISA_X
    // --------
    // memory (Catalyst initiates, CPU serves)
    rule rl_xmem_req;
       let req <- catalyst.x_mem.request.get ();
-      core.accel_ifc.x_mem.request.put (X_M_Req {write: req.write,
-						 address: req.address,
-						 wdata: req.wdata,
-						 size: req.size });
+      core.accel_ifc.x_mem.request.put (req);
    endrule
 
    rule rl_xmem_rsp;
       let rsp <- core.accel_ifc.x_mem.response.get ();
-      catalyst.x_mem.response.put (C_M_Rsp {rdata: rsp.rdata,
-					     write: rsp.write,
-					     err:   rsp.err });
+      catalyst.x_mem.response.put (rsp);
    endrule
 
    // --------
@@ -323,6 +326,17 @@ module mkBSCore (BSCore_IFC);
    method Action  set_verbosity (Bit #(2)  verbosity);
       core.set_verbosity (verbosity);
    endmethod
+
+   method Action ma_close_logs;
+      core.ma_close_logs;
+   endmethod
+
+`ifdef MEM_TOHOST
+   // For ISA tests: watch memory writes to <tohost> addr
+   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
+      core.set_watch_tohost (watch_tohost, tohost_addr);
+   endmethod
+`endif
 `endif
 
 endmodule

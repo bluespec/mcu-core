@@ -66,7 +66,7 @@ function Bool is_16b_instr (Bit #(n) instr);
    return (instr [1:0] != 2'b11);
 endfunction
 
-typedef enum {IDLE, VALID_B16, NEW_RSP, I32_ODD_RSP, I16_ODD_RSP} CFetchFSM
+typedef enum {IDLE, NEW_RSP, I32_ODD_RSP} CFetchFSM
 deriving (Bits, Eq, FShow);
 
 interface CPU_Fetch_C_IFC;
@@ -86,6 +86,7 @@ module mkCPU_Fetch_C #(IMem_IFC  imem32) (CPU_Fetch_C_IFC);
    // imem32.pc (output pc) is always the last requested address, always 32b-aligned.
    // ( Assert: imem32.is_32b_not_16b == True )
 
+   // 0: quiet. 1: rule firing. 2: request-response. 3: details
    Integer verbosity = 0;
 
    // The following hold args of the 'req' method.
@@ -93,10 +94,8 @@ module mkCPU_Fetch_C #(IMem_IFC  imem32) (CPU_Fetch_C_IFC);
 
    // Exception and instruction outputs
    Reg #(Maybe #(Exc_Code)) rg_exc        <- mkReg (tagged Invalid);
-   Reg #(Maybe #(Instr))    rg_instr      <- mkReg (tagged Invalid);
-
-   // Caches the last output of imem32 (imem32.instr [31:16])
-   Reg #(Bit #(16))         rg_cache_b16  <- mkRegU;
+   Reg #(Instr)             rg_instr      <- mkRegU;
+   Reg #(Bool)              rg_instr_rdy  <- mkReg (False);
 
    // State of the compressed fetch FSM
    Reg #(CFetchFSM)         rg_state      <- mkReg (IDLE);
@@ -135,20 +134,18 @@ module mkCPU_Fetch_C #(IMem_IFC  imem32) (CPU_Fetch_C_IFC);
       rg_exc <= irsp_exc;
 
       // Form the return instruction
-      rg_instr <= tagged Valid ({instr[15:0], rg_cache_b16});
-
-      // Remember the upper half-word of the imem response. Whether we use it
-      // or not depends on future fetch addresses
-      rg_cache_b16 <= instr[31:16];
+      rg_instr_rdy <= True;
+      Instr complete_i32 = {instr[15:0], rg_instr[15:0]};
+      rg_instr <= complete_i32;
 
       // Next state logic
-      rg_state <= VALID_B16;
+      rg_state <= IDLE;
 
       if (verbosity > 0) begin
 	 $display ("%06d:[D]:%m.rl_I32_ODD_RSP: state: ", cur_cycle, fshow (rg_state));
          if (verbosity > 1) begin
             $display ("            irsp_exc     : ", fshow (irsp_exc));
-            $display ("            irsp_instr   : ", fshow (instr));
+            $display ("            instr        : ", fshow (instr));
          end
       end
    endrule
@@ -163,123 +160,71 @@ module mkCPU_Fetch_C #(IMem_IFC  imem32) (CPU_Fetch_C_IFC);
       let cond_i16_odd  = fv_cond_i16_odd  (instr);
 
       // Form the return instruction
-      if (cond_i32_even)      rg_instr <= tagged Valid (instr);
-      else if (cond_i16_even) rg_instr <= tagged Valid ({16'b0, instr[15:0]});
-      else if (cond_i16_odd)  rg_instr <= tagged Valid ({16'b0, instr[31:16]});
-      else                    rg_instr <= tagged Invalid;
+      let instr_rdy = True;
 
-      // Register the exception which will accompany the instruction
-      rg_exc <= irsp_exc;
+      // i32 starting from word-aligned address
+      if (cond_i32_even)      rg_instr <= instr;
 
-      // Remember the upper half-word of the imem response. Whether we use it
-      // or not depends on the next state.
-      rg_cache_b16 <= instr[31:16];
+      // i16 starting from word-aligned address
+      else if (cond_i16_even) rg_instr <= {16'b0, instr[15:0]};
 
-      // Next state logic
-      // The next state will indicate that there is a valid upper half-word
-      // cached, unless ...
-      let nstate = VALID_B16;
+      // i16 starting from hword-aligned address
+      else if (cond_i16_odd)  rg_instr <= {16'b0, instr[31:16]};
 
+      // i32 starting from hword-aligned address
       // The required instruction straddles the word boundary: launch the
       // subsequent imem read and wait for its response to complete fetch
-      if (cond_i32_odd) begin
-         nstate = I32_ODD_RSP;
+      else begin
+         instr_rdy = False; rg_instr <= {16'b0, instr[31:16]};
          WordXL addr_of_nxt_b32 = (fn_to_b32_addr (rg_pc) + 4);
          imem32.req (addr_of_nxt_b32);
       end
 
-      // Using up the complete instruction or the upper half-word
-      // Discard the unused part as it is behind the current fetch
-      else if ((cond_i32_even) || (cond_i16_odd))
-         nstate = IDLE;
+      // Indicate instruction is ready in all cases except i32_odd
+      rg_instr_rdy <= instr_rdy;
 
-      rg_state <= nstate;
+      // Register the exception which will accompany the instruction
+      rg_exc <= irsp_exc;
+
+      // Return to IDLE except when fetching i32_odd
+      rg_state <= cond_i32_odd ? I32_ODD_RSP : IDLE;
 
       if (verbosity > 0) begin
 	 $display ("%06d:[D]:%m.rl_NEW_RSP: state: ", cur_cycle, fshow (rg_state));
          if (verbosity > 1) begin
-            $display ("            cond_i32_even: ", fshow (cond_i32_even));
-            $display ("            cond_i32_odd : ", fshow (cond_i32_odd));
-            $display ("            cond_i16_even: ", fshow (cond_i16_even));
-            $display ("            cond_i16_odd : ", fshow (cond_i16_odd));
             $display ("            irsp_exc     : ", fshow (irsp_exc));
-            $display ("            irsp_instr   : ", fshow (instr));
+            $display ("            instr_rdy    : ", fshow (instr_rdy));
+            $display ("            instr        : ", fshow (instr));
+
+            if (verbosity > 2) begin
+               $display ("            cond_i32_even: ", fshow (cond_i32_even));
+               $display ("            cond_i32_odd : ", fshow (cond_i32_odd));
+               $display ("            cond_i16_even: ", fshow (cond_i16_even));
+               $display ("            cond_i16_odd : ", fshow (cond_i16_odd));
+            end
          end
       end
    endrule
 
-   // When imem32.instr [31:15] is the next i16 instruction 
-   rule rl_I16_ODD_RSP (rg_state == I16_ODD_RSP);
-      rg_instr <= tagged Valid ({16'b0, rg_cache_b16});
-      rg_exc   <= tagged Invalid;
-      rg_state <= IDLE;
-      if (verbosity > 0)
-	 $display ("%06d:[D]:%m.rl_I16_ODD_RSP: state: ", cur_cycle, fshow (rg_state));
-   endrule
-
-   rule rl_new_req ((rg_state == IDLE) || (rg_state == VALID_B16));
+   rule rl_new_req (rg_state == IDLE);
       let addr = w_addr;
 
-      // What is the word-aligned address
+      // What is the word-aligned address of the request
       WordXL addr_of_b32 = fn_to_b32_addr (addr);
-      let nstate         = IDLE;
-      Bool new_request   = False;
-
-      // A new request when there is no remnants of an older instruction
-      if (rg_state == IDLE) begin
-         new_request = True;
-         nstate = NEW_RSP;
-      end
-
-      // A valid remnant of a former fetch exists (rg_state == VALID_B16)
-      else begin
-         if (addr == rg_pc) begin
-            // the new fetch address is same as the just fetched
-            // PC. This can happen in a BREAK or on a self-loop.
-            // Treat it like a new request.
-            new_request = True;
-            nstate = NEW_RSP;
-         end
-
-         // The word address of the new request is same as of the remnant
-         else if (eq_b32_addr (addr, rg_pc)) begin
-            // A 32-bit instruction starting from the halfword
-            // boundary. Launch a fetch of the missing piece which
-            // is in the next b32 chunk
-            if (is_32b_instr (rg_cache_b16)) begin
-               new_request = True;
-               addr_of_b32 = addr_of_b32 + 4;
-               nstate = I32_ODD_RSP;
-            end
-
-            // A 16-bit instruction starting from a halfword boundary
-            // The instruction is already available. 
-            // We could have responded right away but that introduces a long
-            // path from rl_exec2.  Introducing a new state to break the path.
-            else nstate = I16_ODD_RSP;
-         end
-
-         // The address of the new request is not the same as of the remnant
-         // This is like a new fetch.
-         else begin
-            new_request = True;
-            nstate = NEW_RSP;
-         end
-      end
 
       // Launch the new fetch
-      if (new_request) imem32.req (addr_of_b32);
+      imem32.req (addr_of_b32);
 
-      // Remember the PC
+      // Remember the requested address as PC
       rg_pc <= addr;
 
       // Update fetch state machine
-      rg_state <= nstate;
+      rg_state <= NEW_RSP;
 
       if (verbosity > 0) begin
-	 $display ("%06d:[D]:%m.rl_new_req: state: ", cur_cycle, fshow (rg_state));
+         $display ("%06d:[D]:%m.rl_new_req: state: ", cur_cycle, fshow (rg_state));
          if (verbosity > 1) begin
-            $display ("            (addr 0x%08h), (addr_of_b32 0x%08h) (rg_pc 0x%08h)", addr, addr_of_b32, rg_pc);
+            $display ("            (addr 0x%08h), (addr_of_b32 0x%08h)", addr, addr_of_b32, rg_pc);
          end
       end
    endrule
@@ -290,20 +235,21 @@ module mkCPU_Fetch_C #(IMem_IFC  imem32) (CPU_Fetch_C_IFC);
    method Action reset;
       if (verbosity > 1) $display ("%06d: [D]: %m.reset", cur_cycle);
       rg_exc <= tagged Invalid;
-      rg_instr <= tagged Invalid;
+      rg_instr_rdy <= False;
       rg_state <= IDLE;
    endmethod
 
    interface IMem_IFC imem;
-      // CPU side: IMem request
-      method Action req (WordXL addr) if ((rg_state == IDLE) || (rg_state == VALID_B16));
+      // CPU side: IMem request. Actions moved to a separate rule
+      // to mention in scheduling pragmas in mkCPU
+      method Action req (WordXL addr) if (rg_state == IDLE);
          w_addr <= addr;
       endmethod
 
       // CPU side: IMem response
-      method ActionValue #(Tuple2 #(Instr, Maybe #(Exc_Code))) instr if (isValid (rg_instr));
-         rg_instr <= tagged Invalid;
-         return (tuple2 (rg_instr.Valid, rg_exc));
+      method ActionValue #(Tuple2 #(Instr, Maybe #(Exc_Code))) instr if (rg_instr_rdy);
+         rg_instr_rdy <= False;
+         return (tuple2 (rg_instr, rg_exc));
       endmethod
    endinterface
 endmodule

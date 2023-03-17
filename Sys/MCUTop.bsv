@@ -33,7 +33,7 @@ import CPU_Globals      :: *;
 import BSCore           :: *;
 import Near_Mem_IFC     :: *; // for Near_Mem_Fabric_IFC
 
-`ifdef WATCH_TOHOST
+`ifdef MEM_TOHOST
 import Fabric_Defs      :: *;
 `endif
 
@@ -103,7 +103,14 @@ interface MCUTop_IFC;
 `ifndef SYNTHESIS
    // ----------------
    // Debugging: set core's verbosity
+   (* always_ready *)
    method Action  set_verbosity (Bit #(2)  verbosity);
+   (* always_ready *)
+   method Action  ma_close_logs;
+
+`ifdef MEM_TOHOST
+   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
+`endif
 `endif
 
 endinterface
@@ -179,6 +186,17 @@ module mkMCUTop (MCUTop_IFC);
    method Action  set_verbosity (Bit #(2)  verbosity);
       bscore.set_verbosity (verbosity);
    endmethod
+
+   method Action ma_close_logs;
+      bscore.ma_close_logs;
+   endmethod
+
+`ifdef MEM_TOHOST
+   // For ISA tests: watch memory writes to <tohost> addr
+   method Action set_watch_tohost (Bool  watch_tohost, Fabric_Addr tohost_addr);
+      bscore.set_watch_tohost (watch_tohost, tohost_addr);
+   endmethod
+`endif
 `endif
 
 endmodule

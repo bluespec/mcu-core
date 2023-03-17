@@ -52,10 +52,11 @@ import CSR_MIE_Min     :: *;
 // ================================================================
 // Writing a CSR can update multiple CSRs (e.g., writing
 // FRM/FFLAGS/FCSR also updates MSTATUS.FS and MSTATUS.SD
+// In this version of the CSRs we do not need the Maybe type
+// for the new CSR value
 
 typedef struct {
    WordXL           new_csr_value;
-   Maybe #(WordXL)  m_new_csr_value2;
    }
 CSR_Write_Result
 deriving (Bits, FShow);
@@ -295,6 +296,7 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
 
       rg_mtvec      <= word_to_mtvec (truncate (addr_map.m_mtvec_reset_value));
       rg_mcause     <= word_to_mcause (0);    // Supposed to be the cause of the reset.
+      rg_mscratch   <= 0;  // not required by spec. reset for ease of debug
       rw_minstret.wset (0);
 
 `ifdef INCLUDE_GDB_CONTROL
@@ -461,7 +463,6 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
       actionvalue
          Bool            success = True;
          WordXL          new_csr_value  = ?;
-         Maybe #(WordXL) m_new_csr_value2 = tagged Invalid;
 
          case (csr_addr)
             // Machine mode
@@ -521,7 +522,11 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
 `endif   // RV32
 `endif   // MCU_LITE
             csr_addr_mepc: begin
+`ifdef ISA_C
+	       new_csr_value = (wordxl & (~ 1));    // mepc [0] always zero
+`else
                new_csr_value = (wordxl & (~ 3));    // mepc [1:0] always zero
+`endif
                rg_mepc      <= new_csr_value;
             end
             csr_addr_mcause: begin
@@ -570,8 +575,7 @@ module mkCSR_RegFile (CSR_RegFile_IFC);
             $display ("%06d:[E]:%m.mav_csr_write:CSR-write addr 0x%0h val 0x%0h not successful", cur_cycle,
                       csr_addr, wordxl);
 
-         return CSR_Write_Result {new_csr_value:    new_csr_value,
-                                  m_new_csr_value2: m_new_csr_value2};
+         return CSR_Write_Result {new_csr_value:    new_csr_value};
       endactionvalue
    endfunction: fav_csr_write
 
