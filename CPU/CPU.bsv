@@ -2156,7 +2156,12 @@ module mkCPU (CPU_IFC);
       let epc      = rg_trap_info.epc;
       let exc_code = rg_trap_info.exc_code;
       let tval     = rg_trap_info.tval;
+`ifdef ISA_C
+      let instr    = rg_exec1_inputs.is_i32_not_i16 ? rg_exec1_inputs.instr
+                                                    : extend (rg_exec1_inputs.instr_C);
+`else
       let instr    = rg_exec1_inputs.instr;
+`endif
 
       // Take trap
       let csr_trap_info <- csr_regfile.csr_trap_actions (
