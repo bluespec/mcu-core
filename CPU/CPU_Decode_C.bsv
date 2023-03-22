@@ -855,11 +855,11 @@ function Tuple2 #(Bool, Instr) fv_decode_C_LI (MISA  misa,  Bit #(2)  xl,  Instr
 
       Bool is_legal = ((misa.c == 1'b1)
 		       && (op == opcode_C1)
-		       && (funct3 == funct3_C_LI)
-		       && (rd != 0));
+		       && (funct3 == funct3_C_LI));
 
       RegName   rs1   = reg_zero;
       Bit #(12) imm12 = signExtend (imm6);
+      Bool is_hint    = is_legal && (rd == 0);
       let       instr = mkInstr_I_type (imm12, rs1, f3_ADDI, rd, op_OP_IMM);
 
       return tuple2 (is_legal, instr);
@@ -876,11 +876,11 @@ function Tuple2 #(Bool, Instr) fv_decode_C_LUI (MISA  misa,  Bit #(2)  xl,  Inst
       Bool is_legal = ((misa.c == 1'b1)
 		       && (op == opcode_C1)
 		       && (funct3 == funct3_C_LUI)
-		       && (rd != 0)
 		       && (rd != 2)
 		       && (nzimm6 != 0));
 
       Bit #(20) imm20 = signExtend (nzimm6);
+      Bool is_hint    = is_legal && (rd == 0);
       let       instr = mkInstr_U_type (imm20, rd, op_LUI);
 
       return tuple2 (is_legal, instr);
@@ -897,16 +897,20 @@ function Tuple2 #(Bool, Instr) fv_decode_C_ADDI (MISA  misa,  Bit #(2)  xl,  Ins
       match { .funct3, .imm_at_12, .rd_rs1, .imm_at_6_2, .op } = fv_ifields_CI_type (instr_C);
       Bit #(6) nzimm6 = { imm_at_12, imm_at_6_2 };
 
-      Bool is_legal = ((misa.c == 1'b1)
+      Bool is_addi  = ((misa.c == 1'b1)
 		       && (op == opcode_C1)
 		       && (funct3 == funct3_C_ADDI)
-		       && (rd_rs1 != 0)
-		       && (nzimm6 != 0));
+		       && (rd_rs1 != 0));
+
+      Bool is_legal= is_addi && (nzimm6 != 0);
+      Bool is_hint = is_addi && (nzimm6 == 0);
 
       Bit #(12) imm12 = signExtend (nzimm6);
-      let       instr = mkInstr_I_type (imm12, rd_rs1, f3_ADDI, rd_rs1, op_OP_IMM);
+      let       instr = is_legal ?
+           mkInstr_I_type (imm12, rd_rs1, f3_ADDI, rd_rs1, op_OP_IMM)
+         : mkInstr_I_type (imm12, 0, f3_ADDI, 0, op_OP_IMM);
 
-      return tuple2 (is_legal, instr);
+      return tuple2 ((is_legal || is_hint), instr);
    end
 endfunction
 
@@ -998,19 +1002,23 @@ function Tuple2 #(Bool, Instr) fv_decode_C_SLLI (MISA  misa,  Bit #(2)  xl,  Ins
       match { .funct3, .imm_at_12, .rd_rs1, .imm_at_6_2, .op } = fv_ifields_CI_type (instr_C);
       Bit #(6) shamt6 = { imm_at_12, imm_at_6_2 };
 
-      Bool is_legal = ((misa.c == 1'b1)
+      Bool is_slli  = ((misa.c == 1'b1)
 		       && (op == opcode_C2)
 		       && (funct3 == funct3_C_SLLI)
-		       && (rd_rs1 != 0)
-                       && (shamt6 != 0)
 		       && ((xl == misa_mxl_32) ? (imm_at_12 == 0) : True));
+
+      Bool is_legal = is_slli && (shamt6 != 0);
+      Bool is_hint = (   (is_legal && (rd_rs1 == 0))
+                      || (is_slli && (shamt6 == 0)));
 
       Bit #(12) imm12 = (  (xl == misa_mxl_32)
 			 ? { msbs7_SLLI, imm_at_6_2 }
 			 : { msbs6_SLLI, shamt6 } );
-      let       instr = mkInstr_I_type (imm12, rd_rs1, f3_SLLI, rd_rs1, op_OP_IMM);
+      let instr = is_legal ?
+           mkInstr_I_type (imm12, rd_rs1, f3_SLLI, rd_rs1, op_OP_IMM) 
+         : mkInstr_I_type (imm12, 0, f3_ADDI, 0, op_OP_IMM);
 
-      return tuple2 (is_legal, instr);
+      return tuple2 ((is_legal || is_hint), instr);
    end
 endfunction
 
@@ -1023,20 +1031,24 @@ function Tuple2 #(Bool, Instr) fv_decode_C_SRLI (MISA  misa,  Bit #(2)  xl,  Ins
       Bit #(2) funct2   = imm_at_12_10 [1:0];
       Bit #(6) shamt6   = { shamt6_5, imm_at_6_2 };
 
-      Bool is_legal = ((misa.c == 1'b1)
+      Bool is_srli  = ((misa.c == 1'b1)
 		       && (op == opcode_C1)
 		       && (funct3 == funct3_C_SRLI)
 		       && (funct2 == funct2_C_SRLI)
 		       && (rd_rs1 != 0)
-                       && (shamt6 != 0)
 		       && ((xl == misa_mxl_32) ? (shamt6_5 == 0) : True));
 
       Bit #(12) imm12 = (  (xl == misa_mxl_32)
 			 ? { msbs7_SRLI, imm_at_6_2 }
 			 : { msbs6_SRLI, shamt6 } );
-      let       instr = mkInstr_I_type (imm12, rd_rs1, f3_SRLI, rd_rs1, op_OP_IMM);
+      let is_legal = is_srli && (shamt6 != 0);
+      let is_hint  = is_srli && (shamt6 == 0);
 
-      return tuple2 (is_legal, instr);
+      let instr = is_legal ?
+           mkInstr_I_type (imm12, rd_rs1, f3_SRLI, rd_rs1, op_OP_IMM)
+         : mkInstr_I_type (imm12, 0, f3_ADDI, 0, op_OP_IMM);
+
+      return tuple2 ((is_legal || is_hint), instr);
    end
 endfunction
 
@@ -1049,20 +1061,30 @@ function Tuple2 #(Bool, Instr) fv_decode_C_SRAI (MISA  misa,  Bit #(2)  xl,  Ins
       Bit #(2) funct2   = imm_at_12_10 [1:0];
       Bit #(6) shamt6   = { shamt6_5, imm_at_6_2 };
 
-      Bool is_legal = ((misa.c == 1'b1)
+      Bool is_srai  = ((misa.c == 1'b1)
 		       && (op == opcode_C1)
 		       && (funct3 == funct3_C_SRAI)
 		       && (funct2 == funct2_C_SRAI)
 		       && (rd_rs1 != 0)
-                       && (shamt6 != 0)
 		       && ((xl == misa_mxl_32) ? (shamt6_5 == 0) : True));
 
       Bit #(12) imm12 = (  (xl == misa_mxl_32)
 			 ? { msbs7_SRAI, imm_at_6_2 }
 			 : { msbs6_SRAI, shamt6 } );
-      let       instr = mkInstr_I_type (imm12, rd_rs1, f3_SRAI, rd_rs1, op_OP_IMM);
 
-      return tuple2 (is_legal, instr);
+      let is_legal = is_srai && (shamt6 != 0);
+
+      // SRAI.64 is hint in RV32
+      let is_hint  = is_srai && (shamt6 == 0);
+
+      // If its a legal SRAI construct a i32.SRAI. If it is a hint,
+      // construct a nop. In case of a hint do not cause an illegal
+      // instruction trap
+      let instr = is_legal ?
+           mkInstr_I_type (imm12, rd_rs1, f3_SRAI, rd_rs1, op_OP_IMM)
+         : mkInstr_I_type (imm12, 0, f3_ADDI, 0, op_OP_IMM);
+
+      return tuple2 ((is_legal || is_hint), instr);
    end
 endfunction
 
@@ -1098,10 +1120,10 @@ function Tuple2 #(Bool, Instr) fv_decode_C_MV (MISA  misa,  Bit #(2)  xl,  Instr
       Bool is_legal = ((misa.c == 1'b1)
 		       && (op == opcode_C2)
 		       && (funct4 == funct4_C_MV)
-		       && (rd_rs1 != 0)
 		       && (rs2 != 0));
 
       RegName rs1   = reg_zero;
+      Bool is_hint = is_legal && (rd_rs1 == 0);
       let     instr = mkInstr_R_type (funct7_ADD, rs2, rs1, funct3_ADD, rd_rs1, op_OP);
 
       return tuple2 (is_legal, instr);
@@ -1116,9 +1138,9 @@ function Tuple2 #(Bool, Instr) fv_decode_C_ADD (MISA  misa,  Bit #(2)  xl,  Inst
       Bool is_legal = ((misa.c == 1'b1)
 		       && (op == opcode_C2)
 		       && (funct4 == funct4_C_ADD)
-		       && (rd_rs1 != 0)
 		       && (rs2 != 0));
 
+      Bool is_hint = is_legal && (rd_rs1 == 0);
       let     instr = mkInstr_R_type (funct7_ADD, rs2, rd_rs1, funct3_ADD, rd_rs1, op_OP);
 
       return tuple2 (is_legal, instr);
