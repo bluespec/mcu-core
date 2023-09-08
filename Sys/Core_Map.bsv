@@ -88,35 +88,34 @@ module mkCore_Map (Core_Map_IFC);
 
    function Bool fn_is_tcm_addr (Fabric_Addr addr);
       Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) tcm_base_msb = truncate (
-         tcm_addr_base >> tcm_addr_lsb); 
+         tcm_addr_base >> tcm_addr_lsb);
       Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) addr_msb = truncate (
-         addr >> tcm_addr_lsb); 
+         addr >> tcm_addr_lsb);
       return (tcm_base_msb == addr_msb);
    endfunction
 `else
-   // Currently the TCMs are of the same size, controlled by a
-   // single tcm_addr_size value.
+
    Fabric_Addr itcm_addr_base = 'h_C000_0000;
-   Fabric_Addr itcm_addr_size = fromInteger (bytes_per_TCM);
+   Fabric_Addr itcm_addr_size = fromInteger (bytes_per_ITCM);
    Fabric_Addr itcm_addr_lim  = itcm_addr_base + itcm_addr_size;
 
    function Bool fn_is_itcm_addr (Fabric_Addr addr);
-      Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) tcm_base_msb = truncate (
-         itcm_addr_base >> tcm_addr_lsb); 
-      Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) addr_msb = truncate (
-         addr >> tcm_addr_lsb); 
+      Bit #(TSub #(Wd_Addr, ITCM_Addr_LSB)) tcm_base_msb = truncate (
+         itcm_addr_base >> itcm_addr_lsb);
+      Bit #(TSub #(Wd_Addr, ITCM_Addr_LSB)) addr_msb = truncate (
+         addr >> itcm_addr_lsb);
       return (tcm_base_msb == addr_msb);
    endfunction
 
    Fabric_Addr dtcm_addr_base = 'h_C800_0000;
-   Fabric_Addr dtcm_addr_size = fromInteger (bytes_per_TCM);
+   Fabric_Addr dtcm_addr_size = fromInteger (bytes_per_DTCM);
    Fabric_Addr dtcm_addr_lim  = dtcm_addr_base + dtcm_addr_size;
 
    function Bool fn_is_dtcm_addr (Fabric_Addr addr);
-      Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) tcm_base_msb = truncate (
-         dtcm_addr_base >> tcm_addr_lsb); 
-      Bit #(TSub #(Wd_Addr, TCM_Addr_LSB)) addr_msb = truncate (
-         addr >> tcm_addr_lsb); 
+      Bit #(TSub #(Wd_Addr, DTCM_Addr_LSB)) tcm_base_msb = truncate (
+         dtcm_addr_base >> dtcm_addr_lsb);
+      Bit #(TSub #(Wd_Addr, DTCM_Addr_LSB)) addr_msb = truncate (
+         addr >> dtcm_addr_lsb);
       return (tcm_base_msb == addr_msb);
    endfunction
 `endif   // ifndef TCM_DP_SINGLE_MEM
