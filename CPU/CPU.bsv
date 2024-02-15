@@ -110,6 +110,7 @@ import Debug_Interfaces :: *;
 
 `ifdef ISA_X
 import XTypes           :: *;
+import CXI              :: *;
 `endif
 
 import DM_CPU_Req_Rsp    :: *;   // for SB_Sys_Req
@@ -1313,7 +1314,7 @@ module mkCPU (CPU_IFC);
             , csr_regfile.read_csr (instr_csr (instr))
          );
 `endif
-      end 
+      end
 
       // ----------------------------------------------------------------
       // MRET/SRET/URET
@@ -1337,7 +1338,7 @@ module mkCPU (CPU_IFC);
          Priv_Mode from_priv = fv_and_or_mux (sels, privs);
 `else
          // MU mode
-         Priv_Mode from_priv = (alu_outputs.control == CONTROL_MRET) ? m_Priv_Mode 
+         Priv_Mode from_priv = (alu_outputs.control == CONTROL_MRET) ? m_Priv_Mode
                                                                      : u_Priv_Mode;
 `endif
 `else
@@ -1551,7 +1552,7 @@ module mkCPU (CPU_IFC);
 
             // A FLD result
             // XXX Not functional. The correct thing to do would be to construct
-            // the FLD response from two partial responses. 
+            // the FLD response from two partial responses.
             else
                frd_val = extend (word32);
 `else
@@ -1619,7 +1620,7 @@ module mkCPU (CPU_IFC);
       let alu_outputs = rg_alu_outputs;
       let pc = rg_pc;
 
-      if (isValid (exc)) 
+      if (isValid (exc))
          fa_take_trap ("ST: Trap", pc, exc.Valid, alu_outputs.addr);
 
       else begin
@@ -1645,7 +1646,7 @@ module mkCPU (CPU_IFC);
    // ================================================================
    // These pragamas are required to let the scheduler know that the DMem and IMem
    // won't be accessed simultaneously.
-   
+
 `ifdef ISA_C
    (* mutually_exclusive = "imem_c_rl_NEW_RSP, rl_exec1" *)
    (* mutually_exclusive = "imem_c_rl_new_req, rl_exec1" *)
@@ -2107,7 +2108,7 @@ module mkCPU (CPU_IFC);
       rg_cur_priv <= csr_trap_info.priv;
 `endif
 
-      // Reusing the alu_inputs structure because it is unused during an interrupt/trap. 
+      // Reusing the alu_inputs structure because it is unused during an interrupt/trap.
       rg_pc <= next_pc;
 
       rg_state <= CPU_RESTART_TRAP;
@@ -2316,7 +2317,7 @@ module mkCPU (CPU_IFC);
          exc_code
          , 0            // tval
       );
-                                                     
+
 
       // Save the PC and the PRIV to restart operations
 `ifdef MIN_CSR
