@@ -2688,13 +2688,13 @@ module mkCPU (CPU_IFC);
    // ----------------------------------------------------------------
    // Misc. control and status
 
-`ifndef SYNTHESIS
+//BT`ifndef SYNTHESIS
    // ----------------
    // For tracing
-   method Action  set_verbosity (Bit #(2)  verbosity);
-      cfg_verbosity <= verbosity;
-   endmethod
-`endif
+//   method Action  set_verbosity (Bit #(2)  verbosity);
+//      cfg_verbosity <= verbosity;
+//   endmethod
+//`endif
 
 endmodule: mkCPU
 

@@ -319,11 +319,11 @@ module mkBSCore (BSCore_IFC);
    // ----------------------------------------------------------------
    // Misc. control and status
 
-`ifndef SYNTHESIS
-   method Action  set_verbosity (Bit #(2)  verbosity);
-      core.set_verbosity (verbosity);
-   endmethod
-`endif
+//BT`ifndef SYNTHESIS
+//   method Action  set_verbosity (Bit #(2)  verbosity);
+//      core.set_verbosity (verbosity);
+//   endmethod
+//`endif
 
 endmodule
 
